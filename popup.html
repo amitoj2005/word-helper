@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, 'Google Sans', Roboto, sans-serif;
+      width: 276px;
+      padding: 14px;
+      color: #3c4043;
+      font-size: 13px;
+      line-height: 1.5;
+      background: #fff;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .logo {
+      /* The artwork carries its own rounded tile and transparent corners, so
+         no border-radius or box-shadow here -- either would paint into them. */
+      width: 30px; height: 30px;
+      flex-shrink: 0;
+      display: block;
+    }
+    .title    { font-size: 14px; font-weight: 600; color: #202124; }
+    .subtitle { font-size: 11px; color: #5f6368; }
+
+    .section-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: #5f6368;
+      margin-bottom: 8px;
+    }
+
+    /* Two equal cards side by side */
+    .style-grid { display: flex; gap: 8px; margin-bottom: 8px; }
+
+    .style-card {
+      all: unset;
+      cursor: pointer;
+      flex: 1;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+    }
+    .style-card + .style-card { margin-top: 8px; }
+    .style-card:hover  { border-color: #a8c7fa; box-shadow: 0 2px 8px rgba(66,133,244,0.14); }
+    .style-card.active { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
+
+    /* ── Preview area (shared) ── */
+    .preview { height: 76px; padding: 9px 10px; flex-shrink: 0; }
+    .pw { display: block; font-size: 11.5px; font-weight: 700; }
+    .pp { display: block; font-size: 9px; font-style: italic; margin-bottom: 3px; }
+    .pd { font-size: 9px; line-height: 1.35; margin-bottom: 5px; }
+    .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; margin-right: 3px; }
+
+    /* ── Modern Glass preview ── */
+    .preview-glass {
+      background: linear-gradient(158deg, rgba(218,230,255,0.97) 0%, rgba(255,255,255,0.94) 55%, rgba(218,232,255,0.97) 100%);
+    }
+    .preview-glass .pw { font-family: -apple-system, sans-serif; color: rgb(18,28,105); }
+    .preview-glass .pp { color: rgba(60,80,160,0.65); font-family: -apple-system, sans-serif; }
+    .preview-glass .pd { color: rgba(12,18,55,0.88); font-family: -apple-system, sans-serif; }
+    .preview-glass .pt {
+      font-family: -apple-system, sans-serif;
+      background: rgba(255,255,255,0.55);
+      border: 1px solid rgba(180,200,255,0.65);
+      border-radius: 100px;
+      color: rgba(18,36,120,0.88);
+    }
+
+    /* ── Old Dictionary preview ── */
+    .preview-dictionary { background: #f4efe0; }
+    .preview-dictionary .pw { font-family: Georgia, serif; color: #1c0f00; font-variant: small-caps; }
+    .preview-dictionary .pp { font-family: Georgia, serif; color: #7a5c2e; }
+    .preview-dictionary .pd { font-family: Georgia, serif; color: #2c1a0e; }
+    .preview-dictionary .pt {
+      font-family: Georgia, serif;
+      background: rgba(155,124,62,0.10);
+      border: 1px solid #c4a470;
+      border-radius: 2px;
+      color: #2c1a0e;
+    }
+
+    /* ── Liquid Glass preview ── */
+    .preview-liquid {
+      background: linear-gradient(135deg, #4facfe 0%, #43e97b 38%, #a18cd1 68%, #fbc2eb 100%);
+      padding: 0; overflow: hidden; position: relative;
+    }
+    .lq-glass {
+      position: absolute; inset: 0; padding: 9px 10px;
+      background: rgba(255,255,255,0.22);
+      box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.85), inset 1px 0 0 rgba(255,255,255,0.5);
+    }
+    .preview-liquid .pw { font-family: -apple-system,sans-serif; font-size: 11.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.3); display: block; }
+    .preview-liquid .pp { font-size: 9px; font-style: italic; color: rgba(255,255,255,0.85); display: block; margin-bottom: 3px; }
+    .preview-liquid .pd { font-size: 9px; color: rgba(255,255,255,0.92); margin-bottom: 5px; line-height: 1.35; }
+    .preview-liquid .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.28); border: 1px solid rgba(255,255,255,0.55); border-radius: 100px; color: #fff; margin-right: 3px; }
+
+    /* ── Liquid Glass II preview ── */
+    .preview-liquid2 {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 70%, #533483 100%);
+      padding: 0; overflow: hidden; position: relative;
+    }
+    .lq2-glass {
+      position: absolute; inset: 0; padding: 9px 10px;
+      background: rgba(255, 255, 255, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 1px 0 0 rgba(255,255,255,0.50);
+    }
+    .preview-liquid2 .pw { font-family: -apple-system,sans-serif; font-size: 11.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.4); display: block; }
+    .preview-liquid2 .pp { font-size: 9px; font-style: italic; color: rgba(255,255,255,0.80); display: block; margin-bottom: 3px; }
+    .preview-liquid2 .pd { font-size: 9px; color: rgba(255,255,255,0.90); margin-bottom: 5px; line-height: 1.35; }
+    .preview-liquid2 .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.40); border-radius: 100px; color: #fff; margin-right: 3px; }
+
+    /* ── Frosted Glass preview ── */
+    .preview-frosted {
+      background: linear-gradient(135deg, #c8dcff 0%, #e0eeff 45%, #d8e8ff 100%);
+      padding: 0; overflow: hidden; position: relative;
+    }
+    .fr-glass {
+      position: absolute; inset: 0; padding: 9px 10px;
+      background: rgba(255, 255, 255, 0.40);
+      border-top: 1px solid rgba(255, 255, 255, 0.90);
+    }
+    .preview-frosted .pw { font-family: -apple-system,sans-serif; font-size: 11.5px; font-weight: 700; color: rgb(18,28,105); display: block; }
+    .preview-frosted .pp { font-size: 9px; font-style: italic; color: rgba(40,60,160,0.70); display: block; margin-bottom: 3px; }
+    .preview-frosted .pd { font-size: 9px; color: rgba(12,18,55,0.85); margin-bottom: 5px; line-height: 1.35; }
+    .preview-frosted .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.55); border: 1px solid rgba(180,200,255,0.60); border-radius: 100px; color: rgba(18,36,120,0.88); margin-right: 3px; }
+
+    /* ── Card label row ── */
+    .card-label {
+      padding: 6px 9px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .card-label-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .card-name { font-size: 11.5px; font-weight: 500; color: #3c4043; white-space: nowrap; }
+    .card-hint { font-size: 9.5px; color: #5f6368; white-space: nowrap; }
+
+    .check {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #1a73e8;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .check::after {
+      content: '';
+      display: block;
+      width: 5px; height: 3px;
+      border-left: 1.5px solid #fff;
+      border-bottom: 1.5px solid #fff;
+      transform: rotate(-45deg) translateY(-1px);
+    }
+    .style-card.active .check { display: flex; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img class="logo" src="icon48.png" alt="">
+    <div>
+      <div class="title">Word Helper</div>
+      <div class="subtitle">Select a word in Google Docs, then click the ●</div>
+    </div>
+  </div>
+
+  <div class="section-label">Popup Style</div>
+
+  <!-- Row 1: two equal cards -->
+  <div class="style-grid">
+    <button class="style-card" data-theme="glass">
+      <div class="preview preview-glass">
+        <span class="pw">serene</span>
+        <span class="pp">adjective</span>
+        <div class="pd">Calm and peaceful.</div>
+        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
+      </div>
+      <div class="card-label">
+        <div class="card-label-text">
+          <span class="card-name">Modern Glass</span>
+        </div>
+        <div class="check"></div>
+      </div>
+    </button>
+
+    <button class="style-card" data-theme="dictionary">
+      <div class="preview preview-dictionary">
+        <span class="pw">serene</span>
+        <span class="pp">adjective</span>
+        <div class="pd">Calm and peaceful.</div>
+        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
+      </div>
+      <div class="card-label">
+        <div class="card-label-text">
+          <span class="card-name">Old Dictionary</span>
+        </div>
+        <div class="check"></div>
+      </div>
+    </button>
+  </div>
+
+  <!-- Row 2: Liquid Glass full-width -->
+  <button class="style-card" data-theme="liquid">
+    <div class="preview preview-liquid">
+      <div class="lq-glass">
+        <span class="pw">serene</span>
+        <span class="pp">adjective</span>
+        <div class="pd">Calm and peaceful.</div>
+        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
+      </div>
+    </div>
+    <div class="card-label">
+      <div class="card-label-text">
+        <span class="card-name">Liquid Glass</span>
+        <span class="card-hint">Real-time background distortion</span>
+      </div>
+      <div class="check"></div>
+    </div>
+  </button>
+
+  <!-- Row 3: Liquid Glass HD full-width -->
+  <button class="style-card" data-theme="liquidhd">
+    <div class="preview preview-liquid">
+      <div class="lq-glass">
+        <span class="pw">serene</span>
+        <span class="pp">adjective</span>
+        <div class="pd">Calm and peaceful.</div>
+        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
+      </div>
+    </div>
+    <div class="card-label">
+      <div class="card-label-text">
+        <span class="card-name">Liquid Glass HD</span>
+        <span class="card-hint">HiDPI rendering + higher quality capture</span>
+      </div>
+      <div class="check"></div>
+    </div>
+  </button>
+
+  <!-- Row 4: Liquid Glass II full-width -->
+  <button class="style-card" data-theme="liquid2">
+    <div class="preview preview-liquid2">
+      <div class="lq2-glass">
+        <span class="pw">serene</span>
+        <span class="pp">adjective</span>
+        <div class="pd">Calm and peaceful.</div>
+        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
+      </div>
+    </div>
+    <div class="card-label">
+      <div class="card-label-text">
+        <span class="card-name">Liquid Glass II</span>
+        <span class="card-hint">Vibrancy · saturated backdrop blur</span>
+      </div>
+      <div class="check"></div>
+    </div>
+  </button>
+
+  <!-- Row 5: Frosted Glass full-width -->
+  <button class="style-card" data-theme="frosted">
+    <div class="preview preview-frosted">
+      <div class="fr-glass">
+        <span class="pw">serene</span>
+        <span class="pp">adjective</span>
+        <div class="pd">Calm and peaceful.</div>
+        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
+      </div>
+    </div>
+    <div class="card-label">
+      <div class="card-label-text">
+        <span class="card-name">Frosted Glass</span>
+        <span class="card-hint">Clean backdrop blur</span>
+      </div>
+      <div class="check"></div>
+    </div>
+  </button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+{
+  "name": "Word Helper",
+  "version": "1.0",
+  "description": "Select a word in Google Docs to see its definition and swap it for a synonym.",
+  "manifest_version": 3,
+  "permissions": ["contextMenus", "storage", "tabs"],
+  "host_permissions": [
+    "https://docs.google.com/*",
+    "https://api.dictionaryapi.dev/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/document/*"],
+      "js": ["content-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["https://docs.google.com/document/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [{
+    "resources": ["content.css", "icon16.png", "icon48.png", "icon128.png"],
+    "matches": ["https://docs.google.com/*"]
+  }]
+}

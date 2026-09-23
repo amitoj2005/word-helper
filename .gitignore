@@ -1,0 +1,18 @@
+# Raw artwork exports kept on disk but not worth versioning.
+# assets/icon-source.png IS tracked -- it is the input to assets/make_icon.py.
+ChatGPT Image*.png
+Gemini_Generated_Image_*.jpg
+old icon.png
+Screenshot *.png
+icon.jpg
+
+# Pre-refactor snapshots from before the repo had history.
+*.bak
+
+# Build output
+*.zip
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store

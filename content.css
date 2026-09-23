@@ -1,0 +1,675 @@
+/* Word Helper — Liquid Glass Popup (loaded into Shadow DOM) */
+
+.wh-popup {
+  display: block;
+  position: fixed;
+  z-index: 2147483647;
+  width: 340px;
+  height: 280px;
+  box-sizing: border-box;
+  pointer-events: auto;
+
+  border-radius: 20px;
+  overflow: hidden;
+  isolation: isolate;
+
+  /* Chromatic border: thin red ring inside a thin blue ring simulates edge colour splitting */
+  box-shadow:
+    0 0 0 0.5px rgba(255, 60, 60,  0.22),
+    0 0 0 1px   rgba(50,  80, 255, 0.28),
+    inset 0  1.5px 0    rgba(255, 255, 255, 0.95),
+    inset  1px 0   0    rgba(255, 255, 255, 0.65),
+    inset -1px 0   0    rgba(255, 255, 255, 0.35),
+    inset 0 -1px   0    rgba(0,   0,   0,   0.05),
+    0  4px 16px rgba(10,  20,  80, 0.18),
+    0 12px 40px rgba(10,  20,  80, 0.22),
+    0 28px 80px rgba(10,  20,  80, 0.14);
+
+  font-family: -apple-system, 'Google Sans', Roboto, 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(10, 15, 50, 0.92);
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+
+  animation: wh-appear 0.28s cubic-bezier(0.16, 1, 0.3, 1.05) both;
+  transform-origin: top center;
+}
+
+@keyframes wh-appear {
+  from { opacity: 0; transform: scale(0.88) translateY(-12px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);     }
+}
+
+/* ── Glass layer 1: (backdrop blur removed — solid background instead) ── */
+.wh-glass-filter {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+}
+
+/* ── Glass layer 2: solid fill ── */
+.wh-glass-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background: linear-gradient(
+    158deg,
+    rgb(218, 230, 255) 0%,
+    rgb(248, 251, 255) 55%,
+    rgb(218, 232, 255) 100%
+  );
+}
+
+/* ── Glass layer 3: specular highlight — the single most important visual cue ── */
+/* A real glass object reflects a bright streak of light from the light source.   */
+/* This bright-to-transparent gradient at the top IS what makes it look like glass */
+/* rather than plastic or frosted film.                                            */
+.wh-glass-specular {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: linear-gradient(
+    170deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.38) 14%,
+    rgba(255, 255, 255, 0.10) 28%,
+    rgba(255, 255, 255, 0.00) 45%,
+    rgba(200, 215, 255, 0.04) 100%
+  );
+  pointer-events: none;
+}
+
+/* Caustic rim glows: coloured light that "leaks" through a real glass object */
+.wh-popup::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse 200px 55px  at 22% -4%,   rgba(255, 255, 255, 0.50) 0%, transparent 100%),
+    radial-gradient(ellipse  80px 80px  at 92% 108%,  rgba(110, 160, 255, 0.28) 0%, transparent 100%),
+    radial-gradient(ellipse 120px 40px  at -4% 55%,   rgba(255, 120,  80, 0.12) 0%, transparent 100%);
+  pointer-events: none;
+}
+
+/* ── Content body ── */
+.wh-body {
+  position: relative;
+  z-index: 3;
+  padding: 16px 18px 18px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  /* Subtle white halo behind text for legibility over the blurred background */
+  text-shadow: 0 1px 4px rgba(255, 255, 255, 0.75);
+}
+
+/* ── Header ── */
+.wh-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.wh-word {
+  font-size: 19px;
+  font-weight: 700;
+  color: rgb(18, 28, 105);
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+  text-shadow: 0 1px 6px rgba(255, 255, 255, 0.90);
+}
+
+.wh-pos {
+  font-size: 12px;
+  font-style: italic;
+  color: rgba(60, 80, 160, 0.65);
+  flex-shrink: 0;
+}
+
+.wh-close {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(0, 0, 60, 0.06);
+  border: 1px solid rgba(160, 190, 255, 0.40);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  color: rgba(20, 30, 100, 0.45);
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.wh-close:hover {
+  background: rgba(220, 50, 50, 0.12);
+  color: rgba(180, 20, 20, 0.85);
+}
+
+/* ── Body ── */
+.wh-def {
+  color: rgba(12, 18, 55, 0.88);
+  margin: 0 0 5px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.wh-ex {
+  color: rgba(50, 65, 140, 0.62);
+  font-style: italic;
+  font-size: 13px;
+  margin: 0 0 4px;
+  line-height: 1.5;
+}
+
+.wh-divider {
+  border: none;
+  border-top: 1px solid rgba(150, 180, 240, 0.38);
+  margin: 12px 0 10px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* ── Synonyms ── */
+.wh-syn-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(50, 80, 180, 0.50);
+  margin-bottom: 9px;
+  text-shadow: none;
+}
+
+.wh-syn-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.wh-syn {
+  all: unset;
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(6px);
+          backdrop-filter: blur(6px);
+  border: 1px solid rgba(180, 200, 255, 0.50);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.90),
+    0 2px 6px rgba(30, 60, 180, 0.08);
+  border-radius: 100px;
+  padding: 5px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  color: rgba(18, 36, 120, 0.88);
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-shadow: none;
+  transition: background 0.14s, border-color 0.14s, transform 0.12s, box-shadow 0.14s;
+}
+.wh-syn:hover {
+  background: rgba(100, 140, 255, 0.22);
+  border-color: rgba(100, 150, 255, 0.65);
+  color: rgba(10, 25, 120, 0.95);
+  transform: scale(1.05) translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.90), 0 5px 14px rgba(60, 100, 255, 0.20);
+}
+.wh-syn:active { transform: scale(0.97); }
+
+.wh-no-syn {
+  color: rgba(60, 80, 160, 0.52);
+  font-style: italic;
+  font-size: 13px;
+}
+
+/* ── Meaning tabs ── */
+.wh-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.wh-tab {
+  all: unset;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  padding: 3px 11px;
+  border-radius: 100px;
+  border: 1px solid rgba(150, 180, 255, 0.45);
+  color: rgba(50, 80, 180, 0.60);
+  background: rgba(255, 255, 255, 0.25);
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.wh-tab:hover {
+  background: rgba(100, 140, 255, 0.14);
+  border-color: rgba(100, 150, 255, 0.55);
+  color: rgba(20, 40, 160, 0.85);
+}
+.wh-tab-active {
+  background: rgba(80, 120, 255, 0.16);
+  border-color: rgba(80, 130, 255, 0.55);
+  color: rgba(10, 30, 160, 0.92);
+}
+
+.wh-hidden { display: none !important; }
+
+/* ── Loading ── */
+.wh-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(30, 50, 140, 0.72);
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.wh-loading-word {
+  color: rgba(10, 20, 80, 0.92);
+  font-weight: 600;
+}
+
+.wh-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(80, 120, 255, 0.18);
+  border-top-color: rgba(60, 100, 255, 0.78);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: wh-spin 0.7s linear infinite;
+}
+
+@keyframes wh-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Liquid Glass Theme
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* No scale — scaling a screenshot-backed canvas breaks the refraction illusion.
+   Just fade in and settle 6px downward so the glass appears in place. */
+@keyframes wh-appear-liquid {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wh-theme-liquid {
+  animation: wh-appear-liquid 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  box-shadow:
+    /* Inner rim — the bright edge a real glass pane shows */
+    inset 0  2px 0   rgba(255, 255, 255, 1.00),
+    inset  1px 0 0   rgba(255, 255, 255, 0.65),
+    inset -1px 0 0   rgba(255, 255, 255, 0.40),
+    inset 0 -1px 0   rgba(  0,   0,   0, 0.05),
+    /* Thin white outer ring, then a faint blue chromatic halo */
+    0 0 0 0.5px rgba(255, 255, 255, 0.75),
+    0 0 0 1.5px rgba(160, 210, 255, 0.35),
+    /* Depth shadows */
+    0  6px 24px rgba( 20,  60, 160, 0.20),
+    0 18px 56px rgba( 15,  50, 140, 0.16),
+    0 40px 100px rgba( 10,  40, 120, 0.10);
+}
+
+/* Crisp white specular streak — the single most "glass-like" cue */
+.wh-theme-liquid .wh-glass-specular {
+  background: linear-gradient(
+    175deg,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(255, 255, 255, 0.65) 7%,
+    rgba(255, 255, 255, 0.18) 18%,
+    rgba(255, 255, 255, 0.00) 32%,
+    rgba(215, 230, 255, 0.03) 100%
+  );
+}
+
+/* Subtle blue-white caustic glows — no rainbow */
+.wh-theme-liquid::after {
+  background:
+    radial-gradient(ellipse 200px 55px at 22% -4%, rgba(255, 255, 255, 0.55) 0%, transparent 100%),
+    radial-gradient(ellipse  80px 80px at 93% 108%, rgba(140, 195, 255, 0.30) 0%, transparent 100%),
+    radial-gradient(ellipse 110px 38px at -4%  55%, rgba(180, 215, 255, 0.18) 0%, transparent 100%);
+}
+
+/* When WebGL is rendering the glass, the shader handles all highlights.
+   The ::after radial gradients (centered outside the popup) bleed in as
+   triangular wedges over the canvas — suppress them entirely. */
+.wh-theme-liquid.wh-webgl::after { display: none; }
+
+/* Text: black + aggressive white drop shadow for legibility over any background */
+.wh-theme-liquid .wh-body {
+  color: #000;
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.95),
+    0 1px 4px rgba(255, 255, 255, 0.90),
+    0 2px 10px rgba(255, 255, 255, 0.80);
+}
+
+.wh-theme-liquid .wh-word {
+  color: #000;
+  font-weight: 800;
+  text-shadow:
+    0 0 8px rgba(255, 255, 255, 1.00),
+    0 1px 5px rgba(255, 255, 255, 0.95),
+    0 3px 12px rgba(255, 255, 255, 0.85);
+}
+
+.wh-theme-liquid .wh-pos {
+  color: rgba(0, 0, 0, 0.75);
+  font-weight: 600;
+}
+
+.wh-theme-liquid .wh-def {
+  color: #000;
+  font-weight: 700;
+}
+
+.wh-theme-liquid .wh-ex {
+  color: rgba(0, 0, 0, 0.72);
+  font-weight: 600;
+}
+
+.wh-theme-liquid .wh-syn-label {
+  color: rgba(0, 0, 0, 0.80);
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.wh-theme-liquid .wh-no-syn {
+  color: rgba(0, 0, 0, 0.65);
+  font-weight: 600;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Old Dictionary Theme
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.wh-theme-dictionary {
+  border-radius: 4px;
+  font-family: Georgia, 'Times New Roman', 'Palatino Linotype', serif;
+  color: #1c0f00;
+  /* Override glass box-shadow with a classic book-card shadow */
+  box-shadow:
+    0 0 0 1px #9b7c3e,
+    inset 0 0 0 2px #f4efe0,
+    inset 0 0 0 3.5px rgba(155, 124, 62, 0.40),
+    0 4px 14px rgba(30, 10, 0, 0.28),
+    0 14px 36px rgba(30, 10, 0, 0.16);
+}
+
+/* Kill all glass layers */
+.wh-theme-dictionary .wh-glass-filter,
+.wh-theme-dictionary .wh-glass-overlay,
+.wh-theme-dictionary .wh-glass-specular { display: none; }
+
+/* Replace the glass background on the overlay layer with parchment */
+.wh-theme-dictionary .wh-glass-overlay {
+  display: block;
+  background: #f4efe0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Kill caustic rim glows */
+.wh-theme-dictionary::after { display: none; }
+
+.wh-theme-dictionary .wh-body { text-shadow: none; }
+
+.wh-theme-dictionary .wh-word {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 18px;
+  color: #1c0f00;
+  font-variant: small-caps;
+  letter-spacing: 0.4px;
+  text-shadow: none;
+}
+
+.wh-theme-dictionary .wh-pos {
+  font-family: Georgia, serif;
+  font-style: italic;
+  color: #7a5c2e;
+  font-size: 12.5px;
+}
+
+.wh-theme-dictionary .wh-close {
+  background: rgba(155, 124, 62, 0.10);
+  border-color: #c4a470;
+  box-shadow: none;
+  color: #7a5c2e;
+}
+.wh-theme-dictionary .wh-close:hover {
+  background: rgba(160, 40, 10, 0.10);
+  color: #8b2000;
+}
+
+.wh-theme-dictionary .wh-def {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 13.5px;
+  color: #1c0f00;
+}
+
+.wh-theme-dictionary .wh-ex {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12.5px;
+  color: #5c4020;
+  border-left: 2px solid #c4a470;
+  padding-left: 8px;
+  margin-left: 2px;
+}
+
+.wh-theme-dictionary .wh-divider {
+  border-top-color: #c4a470;
+  box-shadow: 0 1px 0 rgba(255, 248, 220, 0.8);
+}
+
+.wh-theme-dictionary .wh-syn-label {
+  font-family: Georgia, serif;
+  color: #7a5c2e;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.wh-theme-dictionary .wh-syn {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12.5px;
+  background: rgba(155, 124, 62, 0.09);
+  border-color: #c4a470;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.7), 0 1px 3px rgba(30, 10, 0, 0.10);
+  color: #1c0f00;
+  padding: 3px 11px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.wh-theme-dictionary .wh-syn:hover {
+  background: rgba(155, 124, 62, 0.18);
+  border-color: #9b7c3e;
+  color: #0d0500;
+  box-shadow: inset 0 1px 0 rgba(255, 248, 220, 0.7), 0 2px 6px rgba(30, 10, 0, 0.15);
+  transform: scale(1.04) translateY(-1px);
+}
+
+.wh-theme-dictionary .wh-no-syn {
+  font-family: Georgia, serif;
+  font-style: italic;
+  color: #7a5c2e;
+}
+
+.wh-theme-dictionary .wh-loading {
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #7a5c2e;
+}
+.wh-theme-dictionary .wh-loading-word { color: #1c0f00; }
+
+.wh-theme-dictionary .wh-spinner {
+  border-color: rgba(155, 124, 62, 0.20);
+  border-top-color: rgba(120, 80, 20, 0.70);
+}
+
+.wh-theme-dictionary .wh-tab {
+  font-family: Georgia, serif;
+  font-style: italic;
+  background: rgba(155, 124, 62, 0.06);
+  border-color: #c4a470;
+  color: #7a5c2e;
+}
+.wh-theme-dictionary .wh-tab:hover {
+  background: rgba(155, 124, 62, 0.14);
+  border-color: #9b7c3e;
+  color: #4a2e10;
+}
+.wh-theme-dictionary .wh-tab-active {
+  background: rgba(155, 124, 62, 0.22);
+  border-color: #9b7c3e;
+  color: #2a1400;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Frosted Glass Theme — same blur as the synonym buttons, scaled to the popup
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* backdrop-filter and background are set inline on the popup element itself
+   (not a child) so they see through to the page — see content.js comment. */
+.wh-theme-frosted {
+  box-shadow:
+    inset 0 1px 0   rgba(255, 255, 255, 0.90),
+    0 0 0 1px       rgba(180, 200, 255, 0.50),
+    0  4px 16px     rgba( 10,  20,  80, 0.15),
+    0 12px 36px     rgba( 10,  20,  80, 0.12),
+    0 28px 64px     rgba( 10,  20,  80, 0.08);
+}
+
+.wh-theme-frosted .wh-glass-filter,
+.wh-theme-frosted .wh-glass-overlay { display: none; }
+
+.wh-theme-frosted::after { display: none; }
+
+.wh-theme-frosted .wh-glass-specular {
+  background: linear-gradient(
+    170deg,
+    rgba(255, 255, 255, 0.80) 0%,
+    rgba(255, 255, 255, 0.40) 12%,
+    rgba(255, 255, 255, 0.08) 26%,
+    rgba(255, 255, 255, 0.00) 42%
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Liquid Glass II — superellipse shader (bubbbly.com technique)
+   CSS: same entry animation as liquid (no scale); WebGL handles all lighting.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Pure CSS — backdrop-filter + background set inline on the root element.
+   Border and shadow from bubbbly.com panel. */
+.wh-theme-liquid2 {
+  animation: wh-appear-liquid 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  border: 1px solid rgba(255, 255, 255, 0.70) !important;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+    inset  1px 0   0 rgba(255, 255, 255, 0.50),
+    inset -1px 0   0 rgba(255, 255, 255, 0.30),
+    0 0 0 0.5px rgba(200, 215, 255, 0.40),
+    0  6px 24px rgba(10, 20, 80, 0.14),
+    0 18px 50px rgba(10, 20, 80, 0.10);
+}
+
+.wh-theme-liquid2::after { display: none; }
+.wh-theme-liquid2 .wh-glass-filter,
+.wh-theme-liquid2 .wh-glass-overlay { display: none; }
+
+/* Specular streak — the single most "glass-like" cue even without WebGL */
+.wh-theme-liquid2 .wh-glass-specular {
+  background: linear-gradient(
+    170deg,
+    rgba(255, 255, 255, 0.90) 0%,
+    rgba(255, 255, 255, 0.52) 10%,
+    rgba(255, 255, 255, 0.14) 22%,
+    rgba(255, 255, 255, 0.00) 38%,
+    rgba(220, 235, 255, 0.04) 100%
+  );
+}
+
+/* Text: dark + subtle shadow so it reads over the lightly-tinted blur */
+.wh-theme-liquid2 .wh-body { color: #0f1a2a; text-shadow: none; }
+.wh-theme-liquid2 .wh-word { color: #0f1a2a; font-weight: 800; text-shadow: none; }
+.wh-theme-liquid2 .wh-pos  { color: rgba(15,26,42,0.65); }
+.wh-theme-liquid2 .wh-def  { color: #0f1a2a; font-weight: 600; }
+.wh-theme-liquid2 .wh-ex   { color: rgba(15,26,42,0.70); }
+.wh-theme-liquid2 .wh-syn-label { color: rgba(15,26,42,0.55); font-weight: 700; letter-spacing: 0.8px; }
+.wh-theme-liquid2 .wh-divider   { border-top-color: rgba(15,26,42,0.15); }
+.wh-theme-liquid2 .wh-close     { background: rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.15); color: rgba(15,26,42,0.50); }
+.wh-theme-liquid2 .wh-syn {
+  background: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #0f1a2a;
+  -webkit-backdrop-filter: blur(6px) saturate(3);
+          backdrop-filter: blur(6px) saturate(3);
+}
+
+/* ── Pill ──────────────────────────────────────────────────────────────────── */
+/* The affordance shown beside a settled single-word selection.  Lives in the
+   shadow root, whose host is pointer-events:none — so it re-enables its own. */
+.wh-pill {
+  position: fixed;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 50%;
+  background: #ffffff;
+  color: #2f7de1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16), 0 6px 16px rgba(15, 23, 42, 0.10);
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.14s ease,
+              background-color 0.14s ease;
+  animation: wh-pill-appear 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wh-pill:hover {
+  transform: scale(1.12);
+  background: #2f7de1;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(47, 125, 225, 0.34), 0 8px 20px rgba(47, 125, 225, 0.20);
+}
+
+.wh-pill:active { transform: scale(1.02); }
+
+.wh-pill:focus-visible {
+  outline: 2px solid #2f7de1;
+  outline-offset: 2px;
+}
+
+.wh-pill svg { display: block; }
+
+@keyframes wh-pill-appear {
+  from { opacity: 0; transform: scale(0.4); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wh-pill { animation: none; transition: none; }
+  .wh-pill:hover, .wh-pill:active { transform: none; }
+}
