@@ -15,8 +15,9 @@ and part of speech — plus one-click synonyms that replace the word in place.
 
 ## Demo
 
-<!-- TODO: record a ~10s screen capture of select -> pill -> card -> synonym swap,
-     save it as docs/demo.gif, and uncomment the line below. -->
+<!-- Record ~10s of select -> pill -> card -> synonym swap, run it through
+     `python assets/optimize_gif.py docs/raw.gif docs/demo.gif`, then delete
+     these two lines and uncomment the image below. -->
 <!-- ![Word Helper in action](docs/demo.gif) -->
 
 *Screen recording coming soon.*
