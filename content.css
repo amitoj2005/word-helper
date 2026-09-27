@@ -300,17 +300,13 @@
 
 /* ══════════════════════════════════════════════════════════════════════════════
    Liquid Glass Theme
-   ══════════════════════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════════════════════
+   The refraction itself is an SVG filter applied as backdrop-filter by
+   _lgEnsureFilter in content.js.  These rules add the rim, depth and a text
+   treatment that stays legible over whatever the page shows through. */
 
-/* No scale — scaling a screenshot-backed canvas breaks the refraction illusion.
-   Just fade in and settle 6px downward so the glass appears in place. */
-@keyframes wh-appear-liquid {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.wh-theme-liquid {
-  animation: wh-appear-liquid 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+.wh-theme-liquidlive {
+  background: rgba(255, 255, 255, 0.12);
 
   box-shadow:
     /* Inner rim — the bright edge a real glass pane shows */
@@ -327,33 +323,22 @@
     0 40px 100px rgba( 10,  40, 120, 0.10);
 }
 
-/* Crisp white specular streak — the single most "glass-like" cue */
-.wh-theme-liquid .wh-glass-specular {
+/* Soft white specular streak.  Kept light: at full strength it washes out the
+   top rim, which is where the refraction is most visible. */
+.wh-theme-liquidlive .wh-glass-specular {
   background: linear-gradient(
     175deg,
-    rgba(255, 255, 255, 0.96) 0%,
-    rgba(255, 255, 255, 0.65) 7%,
-    rgba(255, 255, 255, 0.18) 18%,
-    rgba(255, 255, 255, 0.00) 32%,
-    rgba(215, 230, 255, 0.03) 100%
+    rgba(255, 255, 255, 0.50) 0%,
+    rgba(255, 255, 255, 0.16) 9%,
+    rgba(255, 255, 255, 0.00) 22%
   );
 }
 
-/* Subtle blue-white caustic glows — no rainbow */
-.wh-theme-liquid::after {
-  background:
-    radial-gradient(ellipse 200px 55px at 22% -4%, rgba(255, 255, 255, 0.55) 0%, transparent 100%),
-    radial-gradient(ellipse  80px 80px at 93% 108%, rgba(140, 195, 255, 0.30) 0%, transparent 100%),
-    radial-gradient(ellipse 110px 38px at -4%  55%, rgba(180, 215, 255, 0.18) 0%, transparent 100%);
-}
-
-/* When WebGL is rendering the glass, the shader handles all highlights.
-   The ::after radial gradients (centered outside the popup) bleed in as
-   triangular wedges over the canvas — suppress them entirely. */
-.wh-theme-liquid.wh-webgl::after { display: none; }
+/* The base card's ::after glows are centred outside it and bleed in as wedges. */
+.wh-theme-liquidlive::after { display: none; }
 
 /* Text: black + aggressive white drop shadow for legibility over any background */
-.wh-theme-liquid .wh-body {
+.wh-theme-liquidlive .wh-body {
   color: #000;
   text-shadow:
     0 0 6px rgba(255, 255, 255, 0.95),
@@ -361,7 +346,7 @@
     0 2px 10px rgba(255, 255, 255, 0.80);
 }
 
-.wh-theme-liquid .wh-word {
+.wh-theme-liquidlive .wh-word {
   color: #000;
   font-weight: 800;
   text-shadow:
@@ -370,51 +355,30 @@
     0 3px 12px rgba(255, 255, 255, 0.85);
 }
 
-.wh-theme-liquid .wh-pos {
+.wh-theme-liquidlive .wh-pos {
   color: rgba(0, 0, 0, 0.75);
   font-weight: 600;
 }
 
-.wh-theme-liquid .wh-def {
+.wh-theme-liquidlive .wh-def {
   color: #000;
   font-weight: 700;
 }
 
-.wh-theme-liquid .wh-ex {
+.wh-theme-liquidlive .wh-ex {
   color: rgba(0, 0, 0, 0.72);
   font-weight: 600;
 }
 
-.wh-theme-liquid .wh-syn-label {
+.wh-theme-liquidlive .wh-syn-label {
   color: rgba(0, 0, 0, 0.80);
   font-weight: 800;
   letter-spacing: 1px;
 }
 
-.wh-theme-liquid .wh-no-syn {
+.wh-theme-liquidlive .wh-no-syn {
   color: rgba(0, 0, 0, 0.65);
   font-weight: 600;
-}
-
-/* ── Liquid Glass (Live) ─────────────────────────────────────────────────────
-   Layered on .wh-theme-liquid.  The refraction comes from an SVG backdrop
-   filter (see _lgEnsureFilter in content.js), so no screenshot is involved. */
-.wh-theme-liquidlive {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-/* The caustic glows are centred outside the card and bleed in as wedges. */
-.wh-theme-liquidlive::after { display: none; }
-
-/* Softer than the WebGL theme's streak: at full strength it washes out the top
-   rim, which is where the refraction is most visible. */
-.wh-theme-liquidlive .wh-glass-specular {
-  background: linear-gradient(
-    175deg,
-    rgba(255, 255, 255, 0.50) 0%,
-    rgba(255, 255, 255, 0.16) 9%,
-    rgba(255, 255, 255, 0.00) 22%
-  );
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -591,58 +555,6 @@
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   Liquid Glass II — superellipse shader (bubbbly.com technique)
-   CSS: same entry animation as liquid (no scale); WebGL handles all lighting.
-   ══════════════════════════════════════════════════════════════════════════════ */
-
-/* Pure CSS — backdrop-filter + background set inline on the root element.
-   Border and shadow from bubbbly.com panel. */
-.wh-theme-liquid2 {
-  animation: wh-appear-liquid 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
-  border: 1px solid rgba(255, 255, 255, 0.70) !important;
-  box-shadow:
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
-    inset  1px 0   0 rgba(255, 255, 255, 0.50),
-    inset -1px 0   0 rgba(255, 255, 255, 0.30),
-    0 0 0 0.5px rgba(200, 215, 255, 0.40),
-    0  6px 24px rgba(10, 20, 80, 0.14),
-    0 18px 50px rgba(10, 20, 80, 0.10);
-}
-
-.wh-theme-liquid2::after { display: none; }
-.wh-theme-liquid2 .wh-glass-filter,
-.wh-theme-liquid2 .wh-glass-overlay { display: none; }
-
-/* Specular streak — the single most "glass-like" cue even without WebGL */
-.wh-theme-liquid2 .wh-glass-specular {
-  background: linear-gradient(
-    170deg,
-    rgba(255, 255, 255, 0.90) 0%,
-    rgba(255, 255, 255, 0.52) 10%,
-    rgba(255, 255, 255, 0.14) 22%,
-    rgba(255, 255, 255, 0.00) 38%,
-    rgba(220, 235, 255, 0.04) 100%
-  );
-}
-
-/* Text: dark + subtle shadow so it reads over the lightly-tinted blur */
-.wh-theme-liquid2 .wh-body { color: #0f1a2a; text-shadow: none; }
-.wh-theme-liquid2 .wh-word { color: #0f1a2a; font-weight: 800; text-shadow: none; }
-.wh-theme-liquid2 .wh-pos  { color: rgba(15,26,42,0.65); }
-.wh-theme-liquid2 .wh-def  { color: #0f1a2a; font-weight: 600; }
-.wh-theme-liquid2 .wh-ex   { color: rgba(15,26,42,0.70); }
-.wh-theme-liquid2 .wh-syn-label { color: rgba(15,26,42,0.55); font-weight: 700; letter-spacing: 0.8px; }
-.wh-theme-liquid2 .wh-divider   { border-top-color: rgba(15,26,42,0.15); }
-.wh-theme-liquid2 .wh-close     { background: rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.15); color: rgba(15,26,42,0.50); }
-.wh-theme-liquid2 .wh-syn {
-  background: rgba(255, 255, 255, 0.35);
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #0f1a2a;
-  -webkit-backdrop-filter: blur(6px) saturate(3);
-          backdrop-filter: blur(6px) saturate(3);
-}
-
 /* ── Pill ──────────────────────────────────────────────────────────────────── */
 /* The affordance shown beside a settled single-word selection.  Lives in the
    shadow root, whose host is pointer-events:none — so it re-enables its own. */
@@ -703,7 +615,7 @@
    response rather than a bezier imitation.  Opacity runs on its own short
    curve -- it would clamp at 1 anyway, and fading over the full spring would
    leave the card ghostly while it is already full size.  The origin is set
-   inline from JS.  The two screenshot themes opt out via .wh-noscale. */
+   inline from JS. */
 
 .wh-popup.wh-spring {
   /* Fallback for engines without linear() */
@@ -752,18 +664,9 @@
   pointer-events: none;
 }
 
-.wh-popup.wh-noscale.wh-leaving {
-  animation-name: wh-leave-fade;
-}
-
 @keyframes wh-leave {
   from { opacity: 1; transform: scale(1); }
   to   { opacity: 0; transform: scale(0.94); }
-}
-
-@keyframes wh-leave-fade {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(-4px); }
 }
 
 /* The pill swells and dissolves as the card grows out of it. */

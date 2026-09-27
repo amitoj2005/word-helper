@@ -29,7 +29,7 @@ and part of speech — plus one-click synonyms that replace the word in place.
 - **Non-intrusive trigger.** Select a word and a small pill appears beside it; click it (or hover for 300 ms) to open the card. Double-click deliberately does *nothing* — that's Google Docs' own select-a-word gesture, and hijacking it interrupted ordinary editing.
 - **One-click synonym replacement.** Click a synonym and it replaces the selected word directly in the document, matching the original capitalisation and preserving a trailing space.
 - **Never touches your clipboard.** Reading the selection out of Google Docs requires provoking a copy, so the extension intercepts it before anything reaches the OS clipboard. Details below.
-- **Six popup themes**, chosen from the toolbar button.
+- **Four popup themes**, chosen from the toolbar button.
 - **Resilient lookups.** If the primary dictionary is slow or down, it falls back to Datamuse within 3 seconds and skips the primary for five minutes, so only the first lookup of an outage waits.
 - **Keyboard and context-menu access** — `Alt+Shift+D`, or right-click → *Look up "…"*.
 
@@ -39,9 +39,7 @@ and part of speech — plus one-click synonyms that replace the word in place.
 |---|---|
 | **Modern Glass** *(default)* | Blue-white gradient, rendered in a shadow root |
 | **Old Dictionary** | Parchment and serif type |
-| **Liquid Glass** | WebGL refraction of a capture of the page behind the card |
-| **Liquid Glass (Live)** | The same refraction via an SVG `backdrop-filter`: no capture, stays correct while the page scrolls |
-| **Liquid Glass HD** | Same, rendered at device pixel ratio from a quality-100 capture |
+| **Liquid Glass** | Live refraction of the page behind the card, with chromatic fringing at the rim |
 | **Frosted Glass** | `backdrop-filter` blur on the card itself |
 
 ---
@@ -104,17 +102,38 @@ trailing space needs separate handling: pasting `" "` gets trimmed, and
 `execCommand` is intercepted, so the extension dispatches a `keydown`/`keypress`/
 `keyup` triple for Space and lets Docs' own key handler insert it into the model.
 
-### The liquid glass themes
+### Liquid glass without a screenshot
 
-`liquid` and `liquidhd` capture the visible tab via `chrome.tabs.captureVisibleTab`
-and use it as a WebGL texture, refracting it through a signed-distance-field
-rounded rectangle with a Fresnel rim and chromatic aberration. The SDF's
-half-extents have to match the CSS box exactly, or the mismatch shows up as
-bright artifacts along the edges.
+Chromium lets `backdrop-filter` reference an SVG filter, so the browser itself
+refracts the live page behind the card — no tab capture, no WebGL texture, and
+no broad host permission, and it stays correct while the page scrolls.
 
-These two themes and `frosted` mount into `document.body` rather than a shadow
-root — `.wh-popup` sets `isolation: isolate`, which makes it a backdrop root, so
-a child's `backdrop-filter` would see nothing but the popup's own interior.
+The filter chain:
+
+1. **A displacement map** is generated once from the card's signed distance
+   field: neutral grey across the face, bending inward toward the rim with a
+   circular-bezel falloff. Sampling inward keeps every lookup inside the card's
+   own box, so the filter region never clips.
+2. **A light blur** frosts the face just enough to keep the card text legible.
+3. **Three `feDisplacementMap` passes** at 1.2× / 1.0× / 0.8× strength, one per
+   colour channel, recombined with `feComposite` — chromatic aberration at the
+   rim.
+4. **A mild saturation lift.** Kept low on purpose: pushed harder, the colour
+   split turns table rules running parallel to the rim into hard stripes.
+
+The filter has to sit on the card element itself. `.wh-popup` sets
+`isolation: isolate`, which makes it a backdrop root — on a child, the same
+filter would only ever see the card's own interior. That confound once made it
+look as though Chrome ignored displacement inside `backdrop-filter` entirely.
+
+### Motion
+
+The card springs out of the pill: its `transform-origin` is the pill's centre,
+and the scale runs on a damped spring (ζ = 0.68, ~5% overshoot at 0.29 s, at
+rest by 0.6 s) sampled into CSS `linear()`, so it is a real spring response
+rather than a bezier imitation. Content trails the shell, the definition
+cross-fades in over the spinner, and `prefers-reduced-motion` reduces it all to
+a fade.
 
 ---
 
@@ -122,17 +141,17 @@ a child's `backdrop-filter` would see nothing but the popup's own interior.
 
 | Permission | Why |
 |---|---|
-| `https://docs.google.com/document/*` | Inject the content scripts |
-| `https://api.dictionaryapi.dev/*` | Definitions and example sentences (no API key, no account) |
-| `<all_urls>` | Required by `captureVisibleTab`, which the liquid-glass themes use to sample the page behind the card. Chrome demands it even when the tab already matches a narrower host permission. |
 | `storage` | Remember the selected theme |
 | `contextMenus` | The right-click *Look up "…"* entry |
-| `tabs` | Resolve the window ID for `captureVisibleTab` |
+
+That's the whole list — no host permissions. The content scripts run only on
+`https://docs.google.com/document/*`, declared in `content_scripts`, so the only
+site access Chrome shows at install is Google Docs.
 
 No analytics, no tracking, no account. The only network requests are for the
-word you looked up: to `api.dictionaryapi.dev`, and to `api.datamuse.com` as a
-fallback. Datamuse needs no manifest permission; it allows cross-origin requests
-from Google Docs directly.
+word you looked up — to `api.dictionaryapi.dev`, and to `api.datamuse.com` as a
+fallback. Neither needs a permission: in Manifest V3 a content script's requests
+follow the page's CORS rules, and both APIs allow Google Docs.
 
 ---
 
@@ -142,10 +161,10 @@ No build step — it's plain JavaScript loaded directly by Chrome.
 
 | Path | Role |
 |---|---|
-| `content.js` | Triggers, pill, card, cross-frame coordination, WebGL themes |
+| `content.js` | Triggers, pill, card, cross-frame coordination, dictionary lookup, liquid glass filter |
 | `content-main.js` | MAIN-world `setData` patch |
 | `content.css` | All popup and pill styles |
-| `background.js` | Service worker: tab capture and the context menu |
+| `background.js` | Service worker: the context menu |
 | `popup.html` / `popup.js` | Theme picker |
 | `assets/make_icon.py` | Regenerates `icon16/48/128.png` |
 

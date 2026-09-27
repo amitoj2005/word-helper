@@ -55,6 +55,9 @@
       width: 100%;
     }
     .style-card + .style-card { margin-top: 8px; }
+    /* ...but not between the two cards sharing the top row, where it pushed
+       the second one 8px below the first. */
+    .style-grid > .style-card + .style-card { margin-top: 0; }
     .style-card:hover  { border-color: #a8c7fa; box-shadow: 0 2px 8px rgba(66,133,244,0.14); }
     .style-card.active { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
 
@@ -107,22 +110,6 @@
     .preview-liquid .pp { font-size: 9px; font-style: italic; color: rgba(255,255,255,0.85); display: block; margin-bottom: 3px; }
     .preview-liquid .pd { font-size: 9px; color: rgba(255,255,255,0.92); margin-bottom: 5px; line-height: 1.35; }
     .preview-liquid .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.28); border: 1px solid rgba(255,255,255,0.55); border-radius: 100px; color: #fff; margin-right: 3px; }
-
-    /* ── Liquid Glass II preview ── */
-    .preview-liquid2 {
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 70%, #533483 100%);
-      padding: 0; overflow: hidden; position: relative;
-    }
-    .lq2-glass {
-      position: absolute; inset: 0; padding: 9px 10px;
-      background: rgba(255, 255, 255, 0.28);
-      border: 1px solid rgba(255, 255, 255, 0.65);
-      box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 1px 0 0 rgba(255,255,255,0.50);
-    }
-    .preview-liquid2 .pw { font-family: -apple-system,sans-serif; font-size: 11.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.4); display: block; }
-    .preview-liquid2 .pp { font-size: 9px; font-style: italic; color: rgba(255,255,255,0.80); display: block; margin-bottom: 3px; }
-    .preview-liquid2 .pd { font-size: 9px; color: rgba(255,255,255,0.90); margin-bottom: 5px; line-height: 1.35; }
-    .preview-liquid2 .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.40); border-radius: 100px; color: #fff; margin-right: 3px; }
 
     /* ── Frosted Glass preview ── */
     .preview-frosted {
@@ -218,26 +205,7 @@
     </button>
   </div>
 
-  <!-- Row 2: Liquid Glass full-width -->
-  <button class="style-card" data-theme="liquid">
-    <div class="preview preview-liquid">
-      <div class="lq-glass">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
-    </div>
-    <div class="card-label">
-      <div class="card-label-text">
-        <span class="card-name">Liquid Glass</span>
-        <span class="card-hint">Real-time background distortion</span>
-      </div>
-      <div class="check"></div>
-    </div>
-  </button>
-
-  <!-- Liquid Glass (Live): same look, no screen capture -->
+  <!-- Liquid Glass full-width -->
   <button class="style-card" data-theme="liquidlive">
     <div class="preview preview-liquid">
       <div class="lq-glass">
@@ -249,52 +217,14 @@
     </div>
     <div class="card-label">
       <div class="card-label-text">
-        <span class="card-name">Liquid Glass (Live)</span>
-        <span class="card-hint">Live refraction · no screen capture</span>
+        <span class="card-name">Liquid Glass</span>
+        <span class="card-hint">Refracts the page behind the card</span>
       </div>
       <div class="check"></div>
     </div>
   </button>
 
-  <!-- Row 3: Liquid Glass HD full-width -->
-  <button class="style-card" data-theme="liquidhd">
-    <div class="preview preview-liquid">
-      <div class="lq-glass">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
-    </div>
-    <div class="card-label">
-      <div class="card-label-text">
-        <span class="card-name">Liquid Glass HD</span>
-        <span class="card-hint">HiDPI rendering + higher quality capture</span>
-      </div>
-      <div class="check"></div>
-    </div>
-  </button>
-
-  <!-- Row 4: Liquid Glass II full-width -->
-  <button class="style-card" data-theme="liquid2">
-    <div class="preview preview-liquid2">
-      <div class="lq2-glass">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
-    </div>
-    <div class="card-label">
-      <div class="card-label-text">
-        <span class="card-name">Liquid Glass II</span>
-        <span class="card-hint">Vibrancy · saturated backdrop blur</span>
-      </div>
-      <div class="check"></div>
-    </div>
-  </button>
-
-  <!-- Row 5: Frosted Glass full-width -->
+  <!-- Frosted Glass full-width -->
   <button class="style-card" data-theme="frosted">
     <div class="preview preview-frosted">
       <div class="fr-glass">

@@ -310,7 +310,7 @@ const PILL_SIZE       = 26;
 const PILL_HOVER_MS   = 300;   // dwell on the pill to open without clicking
 
 let _pillHoverTimer = null;
-// True while showPopup is awaiting storage/screenshot and popupEl is still
+// True while showPopup is awaiting storage and popupEl is still
 // null.  Without it, releasing Shift after Alt+Shift+D fires a selection probe
 // whose pill lands on top of the card that is already on its way.
 let _popupPending = false;
@@ -499,7 +499,10 @@ async function _lookupDatamuse(word) {
 
 // Themes whose card mounts in document.body instead of the shadow root, so a
 // backdrop-filter on the card can see the page behind it.
-const BODY_THEMES = new Set(['liquid', 'liquidhd', 'liquidlive', 'liquid2', 'frosted']);
+const BODY_THEMES = new Set(['liquidlive', 'frosted']);
+
+// Retired themes, mapped to their successor so a saved choice keeps working.
+const LEGACY_THEMES = { liquid: 'liquidlive', liquidhd: 'liquidlive', liquid2: 'liquidlive' };
 
 // origin: viewport point the card grows out of -- the pill's centre when opened
 // from the pill, otherwise the pointer.
@@ -518,25 +521,14 @@ async function showPopup(word, pos, origin = pos) {
 
 async function _showPopupInner(word, pos, origin) {
   const rect = { top: pos.y - 24, bottom: pos.y, left: pos.x, right: pos.x + 10, width: 10, height: 24 };
-  const { theme = 'glass' } = await chrome.storage.local.get('theme');
+  const { theme: stored = 'glass' } = await chrome.storage.local.get('theme');
+  const theme = LEGACY_THEMES[stored] ?? stored;
 
   const onBody = BODY_THEMES.has(theme);
   if (onBody) ensureLiquidGlassStylesheet();
   const container = onBody ? document.body : shadowRoot;
 
-  let screenshotUrl = null;
-  if (theme === 'liquid' || theme === 'liquidhd') {
-    try {
-      const msgType = theme === 'liquidhd' ? 'CAPTURE_SCREEN_HD' : 'CAPTURE_SCREEN';
-      const resp = await chrome.runtime.sendMessage({ type: msgType });
-      screenshotUrl = resp?.dataUrl ?? null;
-      console.log('[Word Helper] screenshot captured:', screenshotUrl ? `${screenshotUrl.length} chars` : 'NULL');
-    } catch (e) {
-      console.warn('[Word Helper] screenshot failed, using CSS fallback:', e.message);
-    }
-  }
-
-  popupEl = buildPopup({ state: 'loading', word }, rect, theme, screenshotUrl, origin);
+  popupEl = buildPopup({ state: 'loading', word }, rect, theme, origin);
   container.appendChild(popupEl);
 
   let data;
@@ -563,7 +555,7 @@ async function _showPopupInner(word, pos, origin) {
   if (popupEl) {
     _updatePopupBody(popupEl, data);
   } else {
-    popupEl = buildPopup(data, rect, theme, screenshotUrl, origin);
+    popupEl = buildPopup(data, rect, theme, origin);
     container.appendChild(popupEl);
   }
 }
@@ -626,7 +618,7 @@ function _updatePopupBody(el, data) {
   }
 }
 
-function buildPopup(data, rect, theme = 'glass', screenshotUrl = null, origin = null) {
+function buildPopup(data, rect, theme = 'glass', origin = null) {
   const el = document.createElement('div');
   el.className = 'wh-popup';
   if (theme === 'dictionary') el.classList.add('wh-theme-dictionary');
@@ -635,16 +627,10 @@ function buildPopup(data, rect, theme = 'glass', screenshotUrl = null, origin = 
   el.style.top  = `${top}px`;
   el.style.left = `${left}px`;
 
-  if (theme === 'liquid' || theme === 'liquidhd') {
-    // These render a screenshot into a canvas: scaling the card would stretch
-    // the refracted image while the real page stays put.  Fade only.
-    el.classList.add('wh-noscale');
-  } else {
-    // Spring out of the point the user acted on, so the card reads as coming
-    // from the pill rather than appearing beside it.
-    el.classList.add('wh-spring');
-    if (origin) el.style.transformOrigin = `${origin.x - left}px ${origin.y - top}px`;
-  }
+  // Spring out of the point the user acted on, so the card reads as coming
+  // from the pill rather than appearing beside it.
+  el.classList.add('wh-spring');
+  if (origin) el.style.transformOrigin = `${origin.x - left}px ${origin.y - top}px`;
 
   const layers = `
     <div class="wh-glass-filter"></div>
@@ -721,65 +707,15 @@ function buildPopup(data, rect, theme = 'glass', screenshotUrl = null, origin = 
     el.querySelector('.wh-glass-overlay').style.display = 'none';
   }
 
-  if (theme === 'liquid2') {
-    // Pure CSS — no screenshot needed. Matches the bubbbly.com panel technique:
-    // backdrop-filter on the popup element itself (not a child) so isolation:isolate
-    // doesn't block it from seeing the page behind the popup.
-    el.classList.add('wh-theme-liquid2');
-    el.style.backdropFilter = 'blur(12px) saturate(5) brightness(1.03)';
-    el.style.webkitBackdropFilter = 'blur(12px) saturate(5) brightness(1.03)';
-    el.style.background = 'rgba(255, 255, 255, 0.30)';
-    el.querySelector('.wh-glass-filter').style.display = 'none';
-    el.querySelector('.wh-glass-overlay').style.display = 'none';
-  }
-
   if (theme === 'liquidlive') {
-    // Shares the liquid theme's rim, shadows and text treatment; the backdrop
-    // filter does the refraction the WebGL theme needed a screenshot for.
-    // It goes on the card itself -- isolation:isolate makes the card a backdrop
-    // root, so on a child it would only ever see the card's own interior.
-    el.classList.add('wh-theme-liquid', 'wh-theme-liquidlive');
+    // The browser refracts the live page through the backdrop filter.  It goes
+    // on the card itself -- isolation:isolate makes the card a backdrop root,
+    // so on a child it would only ever see the card's own interior.
+    el.classList.add('wh-theme-liquidlive');
     _lgEnsureFilter();
     el.style.backdropFilter = 'url(#wh-lg-live-f)';
     el.querySelector('.wh-glass-filter').style.display  = 'none';
     el.querySelector('.wh-glass-overlay').style.display = 'none';
-  }
-
-  if (theme === 'liquid' || theme === 'liquidhd') {
-    try {
-      el.classList.add('wh-theme-liquid');
-      const filterEl  = el.querySelector('.wh-glass-filter');
-      const overlayEl = el.querySelector('.wh-glass-overlay');
-
-      if (screenshotUrl) {
-        // ── WebGL path: real lens refraction from page screenshot ─────────────
-        const { top: pTop, left: pLeft } = computePopupPos(rect);
-        if (theme === 'liquidhd') {
-          _buildWebGLGlassHD(el, screenshotUrl, pLeft, pTop);
-        } else {
-          _buildWebGLGlass(el, screenshotUrl, pLeft, pTop);
-        }
-        // Hide CSS overlay and specular — the WebGL shader provides both the
-        // frosted background and the glare/Fresnel highlight.
-        // Add wh-webgl class so the ::after pseudo-element (radial gradients
-        // centred outside the popup that bleed in as triangular wedges) is also
-        // suppressed via CSS .wh-theme-liquid.wh-webgl::after { display:none }.
-        overlayEl.style.display = 'none';
-        el.querySelector('.wh-glass-specular').style.display = 'none';
-        el.classList.add('wh-webgl');
-      } else {
-        // ── CSS fallback: frosted glass + gentle surface-ripple overlay ────────
-        _ensureLiquidGlassDom();
-        filterEl.style.backdropFilter = 'blur(26px) saturate(1.9) brightness(1.05)';
-        filterEl.style.webkitBackdropFilter = 'blur(26px) saturate(1.9) brightness(1.05)';
-        overlayEl.style.background =
-          'linear-gradient(158deg,rgba(225,238,255,0.18) 0%,rgba(255,255,255,0.10) 48%,rgba(218,235,255,0.16) 100%)';
-        overlayEl.style.filter = 'url("#wh-lg")';
-        overlayEl.style.webkitFilter = 'url("#wh-lg")';
-      }
-    } catch (err) {
-      console.error('[Word Helper] liquid glass init error:', err);
-    }
   }
 
   return el;
@@ -790,37 +726,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'WH_LOOKUP') { closePill(); triggerLookup(lastMouse, true); }
 });
 
-// ── Liquid Glass SVG filter (screenshot-theme fallback) ─────────────────────────
-// Used only when the WebGL theme's screenshot fails: applies filter: url() to
-// the tint overlay so the gradient itself ripples.
-//
-// This once claimed Chrome ignores feDisplacementMap inside backdrop-filter:
-// url().  It doesn't -- the liquidlive theme below relies on exactly that.  The
-// original test put the backdrop-filter on .wh-glass-filter, a child of the
-// isolation:isolate card, where it could only see the card's own interior.
-function _ensureLiquidGlassDom() {
-  if (document.getElementById('wh-lg-svg')) return;
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.id = 'wh-lg-svg';
-  svg.setAttribute('style', 'position:fixed;width:0;height:0;pointer-events:none;overflow:hidden;');
-  // Low-frequency, slow turbulence — displaces the near-white tint layer gently
-  // so the glass surface ripples like undisturbed water, not like a lava lamp.
-  svg.innerHTML =
-    `<defs>` +
-    `<filter id="wh-lg" color-interpolation-filters="sRGB" x="-20%" y="-20%" width="140%" height="140%">` +
-    `<feTurbulence type="fractalNoise" baseFrequency="0.016 0.012" numOctaves="3" seed="5" result="noise">` +
-    `<animate attributeName="baseFrequency" calcMode="spline" keyTimes="0;0.5;1" keySplines="0.45 0 0.55 1;0.45 0 0.55 1" values="0.016 0.012;0.022 0.016;0.016 0.012" dur="14s" repeatCount="indefinite"/>` +
-    `</feTurbulence>` +
-    `<feDisplacementMap in="SourceGraphic" in2="noise" scale="20" xChannelSelector="R" yChannelSelector="G"/>` +
-    `</filter>` +
-    `</defs>`;
-  document.body.appendChild(svg);
-}
-
-// ── Liquid glass via SVG backdrop filter (no screenshot) ──────────────────────
+// ── Liquid glass via SVG backdrop filter ──────────────────────
 // Chromium lets backdrop-filter reference an SVG filter, so the browser itself
-// refracts the live page behind the card: no captureVisibleTab, no WebGL
-// texture, no <all_urls>.  The displacement map encodes a rounded-rect bezel:
+// refracts the live page behind the card: no page capture, no WebGL texture,
+// and no broad host permission.  The displacement map encodes a rounded-rect bezel:
 // flat (0.5 grey = no shift) across the face, bending toward the rim.
 const LG_W = 340, LG_H = 280, LG_R = 20;   // must match .wh-popup in CSS
 const LG_BEZEL = 28;                        // px of curved rim
@@ -892,8 +801,7 @@ function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR,
   svg.id = id;
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('style', 'position:fixed;width:0;height:0;pointer-events:none;overflow:hidden;');
-  // Chromatic aberration: red refracts 20% harder than green, blue 20% softer,
-  // the split the WebGL theme settled on.
+  // Chromatic aberration: red refracts harder than green, blue softer.
   svg.innerHTML =
     `<filter id="${id}-f" x="0" y="0" width="${LG_W}" height="${LG_H}" ` +
     `filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" ` +
@@ -908,317 +816,6 @@ function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR,
       `<feColorMatrix in="rgb" type="saturate" values="${sat}"/>` +
     `</filter>`;
   doc.body.appendChild(svg);
-}
-
-// ── WebGL liquid-glass renderer ───────────────────────────────────────────────
-// Sets up a WebGL canvas inside the popup's glass-filter layer.
-// The fragment shader implements: lens-refraction at edges + multi-tap frost blur
-// + saturation boost + specular highlight — all sampled from a page screenshot.
-function _buildWebGLGlass(popupEl, screenshotUrl, cssLeft, cssTop) {
-  const PW = 340, PH = 280;
-
-  const canvas = document.createElement('canvas');
-  canvas.width  = PW;
-  canvas.height = PH;
-  // Must fill the popup; z-index 0 puts it below overlay/specular/body layers
-  canvas.style.cssText =
-    'position:absolute;top:0;left:0;width:100%;height:100%;' +
-    'border-radius:inherit;pointer-events:none;z-index:0;display:block;';
-
-  const filterEl = popupEl.querySelector('.wh-glass-filter');
-  filterEl.style.cssText += ';backdrop-filter:none;-webkit-backdrop-filter:none;';
-  filterEl.appendChild(canvas);
-
-  console.log('[Word Helper] WebGL glass: starting, url length =', screenshotUrl?.length);
-
-  const img = new Image();
-  img.onerror = (e) => console.error('[Word Helper] WebGL screenshot img failed:', e);
-  img.onload = () => {
-    console.log('[Word Helper] WebGL glass: img loaded', img.naturalWidth, 'x', img.naturalHeight);
-    const gl = canvas.getContext('webgl', { alpha: false, antialias: false });
-    if (!gl) { console.error('[Word Helper] WebGL context unavailable'); return; }
-
-    const SW = window.innerWidth, SH = window.innerHeight;
-    // Popup rect in normalised screen UV (0–1), accounting for UNPACK_FLIP_Y
-    const rx = cssLeft / SW;
-    const ry = cssTop  / SH;
-    const rw = PW / SW;
-    const rh = PH / SH;
-
-    // ── shaders ───────────────────────────────────────────────────────────────
-    const vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs,
-      'attribute vec2 a;varying vec2 v;' +
-      'void main(){v=a*.5+.5;gl_Position=vec4(a,0.,1.);}');
-    gl.compileShader(vs);
-
-    const fs = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fs, `
-      precision mediump float;
-      uniform sampler2D u;
-      uniform vec4 r;   /* x=leftUV y=topUV z=widthUV w=heightUV */
-      varying vec2 v;   /* (0,0)=canvas bottom-left  (1,1)=canvas top-right */
-      #define PI 3.14159265359
-
-      float sdRB(vec2 p, vec2 b, float rad) {
-        vec2 q = abs(p) - b + rad;
-        return length(max(q,0.)) + min(max(q.x,q.y),0.) - rad;
-      }
-
-      void main() {
-        vec2 base = vec2(r.x + v.x*r.z, r.y + (1.-v.y)*r.w);
-        vec2 c    = v - .5;
-        vec2 p    = vec2(c.x*1.214, c.y);
-
-        /* Pixel-space SDF — exactly matches the CSS 340×280 popup with border-radius:20px.
-           d_px < 0 inside, > 0 outside (in the corner cuts), 0 on the rim.
-           Using pixel space avoids the old "margin" bug where an undersized SDF
-           caused maximum-refraction artefacts along the top/bottom edge strips. */
-        vec2  px   = c * vec2(340., 280.);
-        float d_px = sdRB(px, vec2(170.,140.), 20.);
-        vec2 nrm   = normalize(vec2(
-          sdRB(px+vec2(1.,0.),vec2(170.,140.),20.) - sdRB(px-vec2(1.,0.),vec2(170.,140.),20.),
-          sdRB(px+vec2(0.,1.),vec2(170.,140.),20.) - sdRB(px-vec2(0.,1.),vec2(170.,140.),20.)
-        ));
-
-        /* ── Snell's law refraction (liquid-glass-studio STEP 3-9)
-           IOR=1.50, 28 px rim band.  step(d_px,0.)=1 inside, 0 outside —
-           prevents the corner-area pixels from getting wrong maximum refraction. */
-        float nPx = max(0., -d_px);
-        float xR  = clamp(1.-nPx/28., 0., 1.);
-        float thI = asin(pow(xR, 2.));
-        float eF  = step(d_px, 0.) * max(0., -tan(asin(clamp(sin(thI)/1.50,-1.,1.)) - thI));
-
-        /* ── Per-channel chromatic dispersion (N_R=0.965, N_G=1.0, N_B=1.035) */
-        vec2 ks  = vec2(r.z/1.214, -r.w);
-        vec2 bv  = -nrm*eF*(20./280.);
-        vec2 uvR = clamp(base + bv*ks*1.20, 0., 1.);
-        vec2 uvG = clamp(base + bv*ks,       0., 1.);
-        vec2 uvB = clamp(base + bv*ks*0.80, 0., 1.);
-
-        /* ── Two-zone frost blur — per-channel for dispersion */
-        float centreBlend = smoothstep(.15,.45,length(p));
-        float rimMask     = smoothstep(-16.,0.,d_px);
-        float br  = mix(.010,.002, max(centreBlend, rimMask));
-        vec4 sR=vec4(0.), sG=vec4(0.), sB=vec4(0.);
-        for (int i=0; i<16; i++) {
-          float a  = float(i)*.3927;
-          float ri = (mod(float(i),2.)==0.) ? br : br*.55;
-          vec2  os = vec2(cos(a),sin(a))*ri;
-          sR += texture2D(u, uvR+os);
-          sG += texture2D(u, uvG+os);
-          sB += texture2D(u, uvB+os);
-        }
-        vec4 col = vec4(sR.r/16., sG.g/16., sB.b/16., 1.);
-
-        /* Saturation boost */
-        float lum = dot(col.rgb, vec3(.299,.587,.114));
-        col.rgb = mix(vec3(lum), col.rgb, 1.6)*1.05;
-
-        /* Very light center tint */
-        float center = 1.-centreBlend;
-        col.rgb = mix(col.rgb, vec3(.96,.97,1.), center*.14);
-        col.rgb = mix(col.rgb, vec3(.85,.93,1.), .02+center*.04);
-
-        /* ── Fresnel: bright 20 px rim glow ─────────────────────────────────
-           rimPx = 1 at the rim (d_px=0), fades to 0 at 20 px inside.
-           NOTE: d_px < 0 inside, so the correct formula is (1 + d_px/20).
-           clamp(-d_px/20) would be inverted: 0 at rim, 1 deep inside. */
-        float rimPx = clamp(1. + d_px/20., 0., 1.);
-        col.rgb = mix(col.rgb, vec3(1.), rimPx*rimPx*0.72);
-
-        /* ── Directional glare (liquid-glass-studio sine-angle, upper-left peak) */
-        float nrmAngle = atan(nrm.y, nrm.x);
-        if (nrmAngle < 0.) nrmAngle += 2.*PI;
-        float glareAngle = (nrmAngle - PI/4.) * 2.;
-        float glareAng   = clamp(pow((0.5+sin(glareAngle)*0.5)*1.2*0.85, 1.1), 0., 1.);
-        float glareGeo   = clamp(pow(1.+d_px/1500.*pow(500./30.,2.)+0.25, 5.), 0., 1.);
-        col.rgb += (glareAng*glareGeo + rimPx*rimPx*glareAng*0.7)*0.95;
-
-        col.rgb = clamp(col.rgb, 0., 1.);
-        gl_FragColor = vec4(col.rgb, 1.);
-      }
-    `);
-    gl.compileShader(fs);
-
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    // Full-screen quad (-1,-1) to (1,1)
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER,
-      new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]),
-      gl.STATIC_DRAW);
-    const aLoc = gl.getAttribLocation(prog, 'a');
-    gl.enableVertexAttribArray(aLoc);
-    gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
-
-    // Screenshot texture — no UNPACK_FLIP_Y; the formula r.y+(1-v.y)*r.w
-    // already accounts for WebGL's y-origin being at the bottom.
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    gl.uniform1i(gl.getUniformLocation(prog, 'u'), 0);
-    gl.uniform4f(gl.getUniformLocation(prog, 'r'), rx, ry, rw, rh);
-    gl.viewport(0, 0, PW, PH);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-    const err = gl.getError();
-    console.log('[Word Helper] WebGL glass: draw complete, GL error =', err, '| rect UV:', rx.toFixed(3), ry.toFixed(3), rw.toFixed(3), rh.toFixed(3));
-  };
-  img.src = screenshotUrl;
-}
-
-// ── WebGL liquid-glass renderer — HiDPI variant ───────────────────────────────
-// Identical effect to _buildWebGLGlass but renders at physical pixel resolution
-// (canvas.width = PW * devicePixelRatio) and captures a quality-100 JPEG.
-// All pixel-space shader constants are scaled by u_dpr so the geometry is
-// identical to the standard version — just sharper on HiDPI screens.
-function _buildWebGLGlassHD(popupEl, screenshotUrl, cssLeft, cssTop) {
-  const PW = 340, PH = 280;
-  const dpr = window.devicePixelRatio || 1;
-  const CW  = Math.round(PW * dpr);
-  const CH  = Math.round(PH * dpr);
-
-  const canvas = document.createElement('canvas');
-  canvas.width  = CW;
-  canvas.height = CH;
-  canvas.style.cssText =
-    'position:absolute;top:0;left:0;width:100%;height:100%;' +
-    'border-radius:inherit;pointer-events:none;z-index:0;display:block;';
-
-  const filterEl = popupEl.querySelector('.wh-glass-filter');
-  filterEl.style.cssText += ';backdrop-filter:none;-webkit-backdrop-filter:none;';
-  filterEl.appendChild(canvas);
-
-  const img = new Image();
-  img.onerror = (e) => console.error('[Word Helper] WebGL HD screenshot img failed:', e);
-  img.onload = () => {
-    const gl = canvas.getContext('webgl', { alpha: false, antialias: false });
-    if (!gl) { console.error('[Word Helper] WebGL HD context unavailable'); return; }
-
-    const SW = window.innerWidth, SH = window.innerHeight;
-    const rx = cssLeft / SW, ry = cssTop / SH;
-    const rw = PW / SW,     rh = PH / SH;
-
-    const vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs,
-      'attribute vec2 a;varying vec2 v;' +
-      'void main(){v=a*.5+.5;gl_Position=vec4(a,0.,1.);}');
-    gl.compileShader(vs);
-
-    const fs = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fs, `
-      precision highp float;
-      uniform sampler2D u;
-      uniform vec4 r;
-      uniform float u_dpr;
-      varying vec2 v;
-      #define PI 3.14159265359
-
-      float sdRB(vec2 p, vec2 b, float rad) {
-        vec2 q = abs(p) - b + rad;
-        return length(max(q,0.)) + min(max(q.x,q.y),0.) - rad;
-      }
-
-      void main() {
-        vec2 base = vec2(r.x + v.x*r.z, r.y + (1.-v.y)*r.w);
-        vec2 c    = v - .5;
-        vec2 p    = vec2(c.x*1.214, c.y);
-
-        vec2  px   = c * vec2(340.*u_dpr, 280.*u_dpr);
-        float d_px = sdRB(px, vec2(170.*u_dpr, 140.*u_dpr), 20.*u_dpr);
-        vec2 nrm   = normalize(vec2(
-          sdRB(px+vec2(1.,0.),vec2(170.*u_dpr,140.*u_dpr),20.*u_dpr) - sdRB(px-vec2(1.,0.),vec2(170.*u_dpr,140.*u_dpr),20.*u_dpr),
-          sdRB(px+vec2(0.,1.),vec2(170.*u_dpr,140.*u_dpr),20.*u_dpr) - sdRB(px-vec2(0.,1.),vec2(170.*u_dpr,140.*u_dpr),20.*u_dpr)
-        ));
-
-        float nPx = max(0., -d_px);
-        float xR  = clamp(1.-nPx/(28.*u_dpr), 0., 1.);
-        float thI = asin(pow(xR, 2.));
-        float eF  = step(d_px, 0.) * max(0., -tan(asin(clamp(sin(thI)/1.50,-1.,1.)) - thI));
-
-        vec2 ks  = vec2(r.z/1.214, -r.w);
-        vec2 bv  = -nrm*eF*(20./280.);
-        vec2 uvR = clamp(base + bv*ks*1.20, 0., 1.);
-        vec2 uvG = clamp(base + bv*ks,       0., 1.);
-        vec2 uvB = clamp(base + bv*ks*0.80, 0., 1.);
-
-        float centreBlend = smoothstep(.15,.45,length(p));
-        float rimMask     = smoothstep(-16.*u_dpr, 0., d_px);
-        float br  = mix(.010,.002, max(centreBlend, rimMask));
-        vec4 sR=vec4(0.), sG=vec4(0.), sB=vec4(0.);
-        for (int i=0; i<16; i++) {
-          float a  = float(i)*.3927;
-          float ri = (mod(float(i),2.)==0.) ? br : br*.55;
-          vec2  os = vec2(cos(a),sin(a))*ri;
-          sR += texture2D(u, uvR+os);
-          sG += texture2D(u, uvG+os);
-          sB += texture2D(u, uvB+os);
-        }
-        vec4 col = vec4(sR.r/16., sG.g/16., sB.b/16., 1.);
-
-        float lum = dot(col.rgb, vec3(.299,.587,.114));
-        col.rgb = mix(vec3(lum), col.rgb, 1.6)*1.05;
-
-        float center = 1.-centreBlend;
-        col.rgb = mix(col.rgb, vec3(.96,.97,1.), center*.14);
-        col.rgb = mix(col.rgb, vec3(.85,.93,1.), .02+center*.04);
-
-        float rimPx = clamp(1. + d_px/(20.*u_dpr), 0., 1.);
-        col.rgb = mix(col.rgb, vec3(1.), rimPx*rimPx*0.72);
-
-        float nrmAngle = atan(nrm.y, nrm.x);
-        if (nrmAngle < 0.) nrmAngle += 2.*PI;
-        float glareAngle = (nrmAngle - PI/4.) * 2.;
-        float glareAng   = clamp(pow((0.5+sin(glareAngle)*0.5)*1.2*0.85, 1.1), 0., 1.);
-        float glareGeo   = clamp(pow(1.+d_px/(1500.*u_dpr)*pow(500./30.,2.)+0.25, 5.), 0., 1.);
-        col.rgb += (glareAng*glareGeo + rimPx*rimPx*glareAng*0.7)*0.95;
-
-        col.rgb = clamp(col.rgb, 0., 1.);
-        gl_FragColor = vec4(col.rgb, 1.);
-      }
-    `);
-    gl.compileShader(fs);
-
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER,
-      new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]),
-      gl.STATIC_DRAW);
-    const aLoc = gl.getAttribLocation(prog, 'a');
-    gl.enableVertexAttribArray(aLoc);
-    gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
-
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    gl.uniform1i(gl.getUniformLocation(prog, 'u'), 0);
-    gl.uniform4f(gl.getUniformLocation(prog, 'r'), rx, ry, rw, rh);
-    gl.uniform1f(gl.getUniformLocation(prog, 'u_dpr'), dpr);
-    gl.viewport(0, 0, CW, CH);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-  };
-  img.src = screenshotUrl;
 }
 
 function matchCase(original, syn) {
