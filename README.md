@@ -29,7 +29,8 @@ and part of speech — plus one-click synonyms that replace the word in place.
 - **Non-intrusive trigger.** Select a word and a small pill appears beside it; click it (or hover for 300 ms) to open the card. Double-click deliberately does *nothing* — that's Google Docs' own select-a-word gesture, and hijacking it interrupted ordinary editing.
 - **One-click synonym replacement.** Click a synonym and it replaces the selected word directly in the document, matching the original capitalisation and preserving a trailing space.
 - **Never touches your clipboard.** Reading the selection out of Google Docs requires provoking a copy, so the extension intercepts it before anything reaches the OS clipboard. Details below.
-- **Five popup themes**, chosen from the toolbar button.
+- **Six popup themes**, chosen from the toolbar button.
+- **Resilient lookups.** If the primary dictionary is slow or down, it falls back to Datamuse within 3 seconds and skips the primary for five minutes, so only the first lookup of an outage waits.
 - **Keyboard and context-menu access** — `Alt+Shift+D`, or right-click → *Look up "…"*.
 
 ### Themes
@@ -38,7 +39,8 @@ and part of speech — plus one-click synonyms that replace the word in place.
 |---|---|
 | **Modern Glass** *(default)* | Blue-white gradient, rendered in a shadow root |
 | **Old Dictionary** | Parchment and serif type |
-| **Liquid Glass** | Live WebGL refraction of the page behind the card |
+| **Liquid Glass** | WebGL refraction of a capture of the page behind the card |
+| **Liquid Glass (Live)** | The same refraction via an SVG `backdrop-filter`: no capture, stays correct while the page scrolls |
 | **Liquid Glass HD** | Same, rendered at device pixel ratio from a quality-100 capture |
 | **Frosted Glass** | `backdrop-filter` blur on the card itself |
 
@@ -121,14 +123,16 @@ a child's `backdrop-filter` would see nothing but the popup's own interior.
 | Permission | Why |
 |---|---|
 | `https://docs.google.com/document/*` | Inject the content scripts |
-| `https://api.dictionaryapi.dev/*` | Definitions and pronunciations (no API key, no account) |
+| `https://api.dictionaryapi.dev/*` | Definitions and example sentences (no API key, no account) |
 | `<all_urls>` | Required by `captureVisibleTab`, which the liquid-glass themes use to sample the page behind the card. Chrome demands it even when the tab already matches a narrower host permission. |
 | `storage` | Remember the selected theme |
 | `contextMenus` | The right-click *Look up "…"* entry |
 | `tabs` | Resolve the window ID for `captureVisibleTab` |
 
-No analytics, no tracking, no account. The only network request is to
-`api.dictionaryapi.dev` for the word you looked up.
+No analytics, no tracking, no account. The only network requests are for the
+word you looked up: to `api.dictionaryapi.dev`, and to `api.datamuse.com` as a
+fallback. Datamuse needs no manifest permission; it allows cross-origin requests
+from Google Docs directly.
 
 ---
 
@@ -157,6 +161,11 @@ with `Image.BOX` rather than LANCZOS — ringing on an alpha channel pushes edge
 values past 0/255. Requires Pillow.
 
 ---
+
+## Credits
+
+Definitions from [Free Dictionary API](https://dictionaryapi.dev/) and
+[Datamuse](https://www.datamuse.com/api/).
 
 ## License
 

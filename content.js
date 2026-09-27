@@ -360,8 +360,15 @@ function showPill(word, pos) {
 
   const open = () => {
     const w = _pillWord, p = _pillPos;
-    closePill();
-    showPopup(w, p);
+    const r = el.getBoundingClientRect();
+    const origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    // Hand the pill to its launch animation.  Clearing pillEl first keeps the
+    // closePill() inside showPopup from yanking it out mid-flight.
+    clearTimeout(_pillHoverTimer);
+    pillEl = null; _pillWord = null; _pillPos = null;
+    el.classList.add('wh-pill-launch');
+    setTimeout(() => el.remove(), 300);
+    showPopup(w, p, origin);
   };
 
   // Keep the Google Docs selection alive -- the synonym paste path replaces it,
@@ -379,9 +386,19 @@ function showPill(word, pos) {
   console.log('[Word Helper] pill shown for', word);
 }
 
+// Close with a short shrink-and-fade rather than vanishing.  The element is
+// detached from popupEl first, so a new card can open while this one leaves.
+const LEAVE_MS = 150;
+
 function closePopup() {
-  popupEl?.remove();
+  const el = popupEl;
   popupEl = null;
+  if (!el) return;
+  el.classList.add('wh-leaving');
+  // animationend bubbles up from the card's children too, so match the card.
+  el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });
+  // Fallback: animationend never fires if the animation is skipped.
+  setTimeout(() => el.remove(), LEAVE_MS + 250);
 }
 
 function computePopupPos(rect) {
@@ -394,26 +411,112 @@ function computePopupPos(rect) {
   return { top, left };
 }
 
-const DICT_TIMEOUT_MS = 8000;
+// ── Dictionary lookup ─────────────────────────────────────────────────────────
+// dictionaryapi.dev is primary (it has example sentences); Datamuse is the
+// fallback.  The primary's host does go down -- it has been seen returning
+// Cloudflare 522s after ~20s -- so it gets a short timeout, and after a failure
+// it is skipped for a while so only the first lookup of an outage pays for it.
+const DICT_TIMEOUT_MS    = 3000;
+const PRIMARY_BACKOFF_MS = 5 * 60 * 1000;
+let _primaryDownUntil    = 0;
+
+const noEntry = () => Object.assign(new Error('no entry'), { noEntry: true });
+
+async function lookupWord(word) {
+  if (Date.now() >= _primaryDownUntil) {
+    try {
+      return await _lookupPrimary(word);
+    } catch (err) {
+      if (!err.noEntry) {
+        _primaryDownUntil = Date.now() + PRIMARY_BACKOFF_MS;
+        console.warn('[Word Helper] dictionaryapi.dev failed, using Datamuse:', err.name, err.message);
+      }
+      // A 404 falls through too: Datamuse's coverage is wider.
+    }
+  }
+  return _lookupDatamuse(word);
+}
+
+async function _lookupPrimary(word) {
+  const res = await fetch(
+    `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
+    { signal: AbortSignal.timeout(DICT_TIMEOUT_MS) });
+  if (res.status === 404) throw noEntry();
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const [entry] = await res.json();
+  const meanings = (entry.meanings ?? []).slice(0, 5).map(m => {
+    const def    = m.definitions?.[0];
+    const synSet = new Set([
+      ...(m.synonyms ?? []),
+      ...(m.definitions ?? []).flatMap(d => d.synonyms ?? []),
+    ]);
+    return {
+      partOfSpeech: m.partOfSpeech ?? '',
+      definition:   def?.definition ?? 'No definition found.',
+      example:      def?.example ?? '',
+      synonyms:     [...synSet].slice(0, 12),
+    };
+  });
+  if (!meanings.length) throw noEntry();
+  return meanings;
+}
+
+const DATAMUSE_POS = { n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb' };
+
+async function _lookupDatamuse(word) {
+  const q      = encodeURIComponent(word);
+  const signal = AbortSignal.timeout(DICT_TIMEOUT_MS);
+  const [defRes, synRes] = await Promise.all([
+    fetch(`https://api.datamuse.com/words?sp=${q}&md=dp&max=1`, { signal }),
+    fetch(`https://api.datamuse.com/words?rel_syn=${q}&md=p&max=40`, { signal }),
+  ]);
+  if (!defRes.ok || !synRes.ok) throw new Error(`Datamuse HTTP ${defRes.status}/${synRes.status}`);
+  const [entry] = await defRes.json();
+  const syns    = await synRes.json();
+  const lower   = word.toLowerCase();
+  // sp= is a spelling match, so a typo comes back as a different word.
+  if (!entry || entry.word.toLowerCase() !== lower || !entry.defs?.length) throw noEntry();
+
+  // defs arrive as "n	An institution ..."; keep the first per part of speech.
+  const byPos = new Map();
+  for (const raw of entry.defs) {
+    const tab = raw.indexOf('	');
+    const tag = raw.slice(0, tab);
+    if (!byPos.has(tag)) byPos.set(tag, raw.slice(tab + 1).trim());
+  }
+  return [...byPos].slice(0, 5).map(([tag, definition]) => ({
+    partOfSpeech: DATAMUSE_POS[tag] ?? '',
+    definition,
+    example: '',
+    // Synonyms are tagged by part of speech, so "educate" lands under the verb
+    // and "academy" under the noun.  Drop derivatives like "schoolhouse".
+    synonyms: syns
+      .filter(sy => (sy.tags ?? []).includes(tag) && !sy.word.toLowerCase().includes(lower))
+      .map(sy => sy.word)
+      .slice(0, 12),
+  }));
+}
 
 // Themes whose card mounts in document.body instead of the shadow root, so a
 // backdrop-filter on the card can see the page behind it.
 const BODY_THEMES = new Set(['liquid', 'liquidhd', 'liquidlive', 'liquid2', 'frosted']);
 
-async function showPopup(word, pos) {
+// origin: viewport point the card grows out of -- the pill's centre when opened
+// from the pill, otherwise the pointer.
+async function showPopup(word, pos, origin = pos) {
   if (window !== window.top) return;
   closePopup();
   closePill();
   ensureShadow();
   _popupPending = true;
   try {
-    await _showPopupInner(word, pos);
+    await _showPopupInner(word, pos, origin);
   } finally {
     _popupPending = false;
   }
 }
 
-async function _showPopupInner(word, pos) {
+async function _showPopupInner(word, pos, origin) {
   const rect = { top: pos.y - 24, bottom: pos.y, left: pos.x, right: pos.x + 10, width: 10, height: 24 };
   const { theme = 'glass' } = await chrome.storage.local.get('theme');
 
@@ -433,49 +536,26 @@ async function _showPopupInner(word, pos) {
     }
   }
 
-  popupEl = buildPopup({ state: 'loading', word }, rect, theme, screenshotUrl);
+  popupEl = buildPopup({ state: 'loading', word }, rect, theme, screenshotUrl, origin);
   container.appendChild(popupEl);
 
-  // Only a 404 means "this word has no entry".  Anything else -- a timeout, a
-  // 5xx, a network error -- is the service failing, and saying "No definition
-  // found" then would tell the user their word doesn't exist.  The API's host
-  // does go down; unguarded, a lookup sat on the spinner for ~20s first.
-  const message = text => ({
-    state: 'loaded', word,
-    meanings: [{ partOfSpeech: '', definition: text, example: '', synonyms: [] }],
-  });
   let data;
   try {
-    const res = await fetch(
-      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
-      { signal: AbortSignal.timeout(DICT_TIMEOUT_MS) });
-    if (res.status === 404) throw Object.assign(new Error('no entry'), { noEntry: true });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const [entry] = await res.json();
-    const meanings = (entry.meanings ?? []).slice(0, 5).map(m => {
-      const def    = m.definitions?.[0];
-      const synSet = new Set([
-        ...(m.synonyms ?? []),
-        ...(m.definitions ?? []).flatMap(d => d.synonyms ?? []),
-      ]);
-      return {
-        partOfSpeech: m.partOfSpeech ?? '',
-        definition:   def?.definition ?? 'No definition found.',
-        example:      def?.example ?? '',
-        synonyms:     [...synSet].slice(0, 12),
-      };
-    });
+    data = { state: 'loaded', word, meanings: await lookupWord(word) };
+  } catch (err) {
+    // noEntry means both sources answered and neither knows the word.  Any
+    // other error is the services failing -- saying "No definition found"
+    // then would tell the user their word doesn't exist.
+    if (!err.noEntry) console.warn('[Word Helper] all dictionary sources failed:', err.name, err.message);
     data = {
       state: 'loaded', word,
-      meanings: meanings.length ? meanings : [{ partOfSpeech: '', definition: 'No definition found.', example: '', synonyms: [] }],
+      meanings: [{
+        partOfSpeech: '', example: '', synonyms: [],
+        definition: err.noEntry
+          ? 'No definition found.'
+          : "Couldn't reach the dictionary service. Try again in a moment.",
+      }],
     };
-  } catch (err) {
-    if (err.noEntry) {
-      data = message('No definition found.');
-    } else {
-      console.warn('[Word Helper] dictionary lookup failed:', err.name, err.message);
-      data = message("Couldn't reach the dictionary service. Try again in a moment.");
-    }
   }
 
   // Update in-place so the popup never disappears — no DOM remove/re-add, no
@@ -483,7 +563,7 @@ async function _showPopupInner(word, pos) {
   if (popupEl) {
     _updatePopupBody(popupEl, data);
   } else {
-    popupEl = buildPopup(data, rect, theme, screenshotUrl);
+    popupEl = buildPopup(data, rect, theme, screenshotUrl, origin);
     container.appendChild(popupEl);
   }
 }
@@ -507,6 +587,11 @@ function _updatePopupBody(el, data) {
 
   const body = el.querySelector('.wh-body');
   if (!body) return;
+
+  // Restart the swap animation so the definition fades in over the spinner.
+  body.classList.remove('wh-body-swap');
+  void body.offsetWidth;
+  body.classList.add('wh-body-swap');
 
   body.innerHTML = `
     <div class="wh-header">
@@ -541,7 +626,7 @@ function _updatePopupBody(el, data) {
   }
 }
 
-function buildPopup(data, rect, theme = 'glass', screenshotUrl = null) {
+function buildPopup(data, rect, theme = 'glass', screenshotUrl = null, origin = null) {
   const el = document.createElement('div');
   el.className = 'wh-popup';
   if (theme === 'dictionary') el.classList.add('wh-theme-dictionary');
@@ -549,6 +634,17 @@ function buildPopup(data, rect, theme = 'glass', screenshotUrl = null) {
   const { top, left } = computePopupPos(rect);
   el.style.top  = `${top}px`;
   el.style.left = `${left}px`;
+
+  if (theme === 'liquid' || theme === 'liquidhd') {
+    // These render a screenshot into a canvas: scaling the card would stretch
+    // the refracted image while the real page stays put.  Fade only.
+    el.classList.add('wh-noscale');
+  } else {
+    // Spring out of the point the user acted on, so the card reads as coming
+    // from the pill rather than appearing beside it.
+    el.classList.add('wh-spring');
+    if (origin) el.style.transformOrigin = `${origin.x - left}px ${origin.y - top}px`;
+  }
 
   const layers = `
     <div class="wh-glass-filter"></div>
@@ -728,8 +824,11 @@ function _ensureLiquidGlassDom() {
 // flat (0.5 grey = no shift) across the face, bending toward the rim.
 const LG_W = 340, LG_H = 280, LG_R = 20;   // must match .wh-popup in CSS
 const LG_BEZEL = 28;                        // px of curved rim
-const LG_SCALE = 48;                        // feDisplacementMap scale; max shift is half this
-const LG_BLUR  = 5;                         // frost on the face so card text stays legible
+const LG_SCALE = 40;                        // feDisplacementMap scale; max shift is half this
+const LG_BLUR  = 2.5;                       // frost on the face: enough to keep card text legible
+const LG_CHROMA = 0.2;                      // R/B displace this much more/less than G
+const LG_SAT   = 1.1;                       // saturation boost; higher turns the rim's colour split
+                                            // into hard stripes along table rules
 
 function _lgSdf(px, py) {
   // Signed distance to the rounded rect, negative inside.
@@ -777,7 +876,8 @@ function _lgDisplacementMap(bezel = LG_BEZEL) {
 }
 
 function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR,
-                          bezel = LG_BEZEL, doc = document } = {}) {
+                          bezel = LG_BEZEL, chroma = LG_CHROMA, sat = LG_SAT,
+                          doc = document } = {}) {
   if (doc.getElementById(id)) return;
   const map = _lgDisplacementMap(bezel);
   const disp = (scale, res) =>
@@ -801,11 +901,11 @@ function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR,
       `<feImage href="${map}" x="0" y="0" width="${LG_W}" height="${LG_H}" ` +
       `preserveAspectRatio="none" result="map"/>` +
       `<feGaussianBlur in="SourceGraphic" stdDeviation="${blur}" result="frost"/>` +
-      disp(scale * 1.2, 'dr') + disp(scale, 'dg') + disp(scale * 0.8, 'db') +
+      disp(scale * (1 + chroma), 'dr') + disp(scale, 'dg') + disp(scale * (1 - chroma), 'db') +
       only('dr', 0, 'r') + only('dg', 1, 'g') + only('db', 2, 'b') +
       `<feComposite in="r"  in2="g" operator="arithmetic" k2="1" k3="1" result="rg"/>` +
       `<feComposite in="rg" in2="b" operator="arithmetic" k2="1" k3="1" result="rgb"/>` +
-      `<feColorMatrix in="rgb" type="saturate" values="1.35"/>` +
+      `<feColorMatrix in="rgb" type="saturate" values="${sat}"/>` +
     `</filter>`;
   doc.body.appendChild(svg);
 }

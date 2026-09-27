@@ -400,7 +400,7 @@
    Layered on .wh-theme-liquid.  The refraction comes from an SVG backdrop
    filter (see _lgEnsureFilter in content.js), so no screenshot is involved. */
 .wh-theme-liquidlive {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* The caustic glows are centred outside the card and bleed in as wedges. */
@@ -693,4 +693,93 @@
 @media (prefers-reduced-motion: reduce) {
   .wh-pill { animation: none; transition: none; }
   .wh-pill:hover, .wh-pill:active { transform: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Motion
+   ══════════════════════════════════════════════════════════════════════════════
+   Card grows out of the pill on a damped spring (zeta 0.68: ~5% overshoot at
+   ~0.29s, at rest by 0.6s), sampled into linear() so it is a real spring
+   response rather than a bezier imitation.  Opacity runs on its own short
+   curve -- it would clamp at 1 anyway, and fading over the full spring would
+   leave the card ghostly while it is already full size.  The origin is set
+   inline from JS.  The two screenshot themes opt out via .wh-noscale. */
+
+.wh-popup.wh-spring {
+  /* Fallback for engines without linear() */
+  animation:
+    wh-spring-scale 600ms cubic-bezier(0.34, 1.35, 0.64, 1) both,
+    wh-spring-fade  160ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation:
+    wh-spring-scale 600ms linear(0, 0.0105, 0.0392, 0.0821, 0.1357, 0.197, 0.2632, 0.3323, 0.4021, 0.4712, 0.5383, 0.6024, 0.6627, 0.7188, 0.7702, 0.8168, 0.8585, 0.8954, 0.9277, 0.9554, 0.9789, 0.9985, 1.0146, 1.0273, 1.0372, 1.0445, 1.0495, 1.0526, 1.0541, 1.0542, 1.0531, 1.0512, 1.0486, 1.0455, 1.0421, 1.0384, 1.0346, 1.0308, 1.0271, 1.0235, 1.0201, 1.017, 1.014, 1.0113, 1.0089, 1.0068, 1.0049, 1.0032, 1.0018, 1.0007, 0.9997, 0.9989, 0.9983, 0.9978, 0.9975, 0.9972, 0.9971, 0.9971, 0.9971, 0.9972, 1) both,
+    wh-spring-fade  160ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes wh-spring-scale {
+  from { transform: scale(0.14); }
+  to   { transform: scale(1); }
+}
+
+@keyframes wh-spring-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Content trails the shell slightly, the way iOS sheets settle. */
+.wh-popup.wh-spring .wh-body {
+  animation: wh-body-in 280ms 110ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes wh-body-in {
+  from { opacity: 0; transform: translateY(5px); filter: blur(3px); }
+  to   { opacity: 1; transform: none;            filter: none; }
+}
+
+/* Definition arriving over the spinner.  A distinct keyframe name so the
+   animation restarts even while wh-body-in is still running. */
+.wh-popup .wh-body.wh-body-swap {
+  animation: wh-body-swap 240ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes wh-body-swap {
+  from { opacity: 0; transform: translateY(4px); filter: blur(2px); }
+  to   { opacity: 1; transform: none;            filter: none; }
+}
+
+/* Leaving: quick and slightly accelerating -- exits should get out of the way. */
+.wh-popup.wh-leaving {
+  animation: wh-leave 150ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+.wh-popup.wh-noscale.wh-leaving {
+  animation-name: wh-leave-fade;
+}
+
+@keyframes wh-leave {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.94); }
+}
+
+@keyframes wh-leave-fade {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-4px); }
+}
+
+/* The pill swells and dissolves as the card grows out of it. */
+.wh-pill.wh-pill-launch {
+  animation: wh-pill-launch 220ms cubic-bezier(0.2, 0, 0, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes wh-pill-launch {
+  to { transform: scale(2.2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wh-popup.wh-spring                  { animation: wh-spring-fade 160ms ease-out both; }
+  .wh-popup.wh-spring .wh-body,
+  .wh-popup .wh-body.wh-body-swap      { animation: none; }
+  .wh-popup.wh-leaving                 { animation: wh-spring-fade 120ms ease-in reverse both; }
+  .wh-pill.wh-pill-launch              { animation: none; opacity: 0; }
 }
