@@ -12,23 +12,35 @@ import numpy as np, os
 
 SRC    = 'icon-source.png'
 SIZES  = (16, 48, 128)
-RADIUS = 185 / 1109.0        # corner radius as a fraction of tile width
+RADIUS = 185 / 1113.0        # corner radius as a fraction of tile width
 
 
 def tile_bbox(img):
-    """Bounding box of the blue tile, ignoring the white ground and shadow."""
+    """Bounding box of the blue tile, ignoring the white ground and its shadow.
+
+    The threshold has to stay generous on brightness: the tile's own shaded
+    bottom edge falls to b~80, and excluding it clipped ~10px off the bottom,
+    which pulled the crop upward and tilted the rounded mask off the artwork's
+    real corners.  The drop shadow is neutral grey, so the b-r term alone is
+    enough to reject it.
+    """
     a = np.asarray(img.convert('RGB')).astype(int)
     r, b = a[..., 0], a[..., 2]
-    ys, xs = np.nonzero((b - r > 25) & (b > 90))
+    ys, xs = np.nonzero((b - r > 10) & (b > 50))
     return xs.min(), ys.min(), xs.max(), ys.max()
 
 
 def square_crop(img):
+    """Crop tight to the tile.
+
+    The source tile is 1113x1108 -- not quite square.  Padding it out to a
+    square left uneven slivers of white above and below, so the corner mask no
+    longer matched the artwork's corners.  Cropping tight and letting render()
+    scale to a square instead spreads that 0.45% over the whole height, which
+    is invisible, and keeps the tile flush to all four edges.
+    """
     x0, y0, x1, y1 = tile_bbox(img)
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    half   = max(x1 - x0, y1 - y0) / 2
-    return img.crop((round(cx - half), round(cy - half),
-                     round(cx + half), round(cy + half)))
+    return img.crop((x0, y0, x1 + 1, y1 + 1))
 
 
 def render(size, tile):
