@@ -3,6 +3,11 @@
   "version": "1.0",
   "description": "Select a word in Google Docs to see its definition and swap it for a synonym.",
   "manifest_version": 3,
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "permissions": ["contextMenus", "storage", "tabs"],
   "host_permissions": [
     "https://docs.google.com/*",
