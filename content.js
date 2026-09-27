@@ -390,6 +390,10 @@ function computePopupPos(rect) {
   return { top, left };
 }
 
+// Themes whose card mounts in document.body instead of the shadow root, so a
+// backdrop-filter on the card can see the page behind it.
+const BODY_THEMES = new Set(['liquid', 'liquidhd', 'liquidlive', 'liquid2', 'frosted']);
+
 async function showPopup(word, pos) {
   if (window !== window.top) return;
   closePopup();
@@ -399,8 +403,9 @@ async function showPopup(word, pos) {
   const rect = { top: pos.y - 24, bottom: pos.y, left: pos.x, right: pos.x + 10, width: 10, height: 24 };
   const { theme = 'glass' } = await chrome.storage.local.get('theme');
 
-  if (theme === 'liquid' || theme === 'liquidhd' || theme === 'liquid2' || theme === 'frosted') ensureLiquidGlassStylesheet();
-  const container = (theme === 'liquid' || theme === 'liquidhd' || theme === 'liquid2' || theme === 'frosted') ? document.body : shadowRoot;
+  const onBody = BODY_THEMES.has(theme);
+  if (onBody) ensureLiquidGlassStylesheet();
+  const container = onBody ? document.body : shadowRoot;
 
   let screenshotUrl = null;
   if (theme === 'liquid' || theme === 'liquidhd') {
@@ -602,6 +607,18 @@ function buildPopup(data, rect, theme = 'glass', screenshotUrl = null) {
     el.querySelector('.wh-glass-overlay').style.display = 'none';
   }
 
+  if (theme === 'liquidlive') {
+    // Shares the liquid theme's rim, shadows and text treatment; the backdrop
+    // filter does the refraction the WebGL theme needed a screenshot for.
+    // It goes on the card itself -- isolation:isolate makes the card a backdrop
+    // root, so on a child it would only ever see the card's own interior.
+    el.classList.add('wh-theme-liquid', 'wh-theme-liquidlive');
+    _lgEnsureFilter();
+    el.style.backdropFilter = 'url(#wh-lg-live-f)';
+    el.querySelector('.wh-glass-filter').style.display  = 'none';
+    el.querySelector('.wh-glass-overlay').style.display = 'none';
+  }
+
   if (theme === 'liquid' || theme === 'liquidhd') {
     try {
       el.classList.add('wh-theme-liquid');
@@ -647,12 +664,14 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'WH_LOOKUP') { closePill(); triggerLookup(lastMouse, true); }
 });
 
-// ── Liquid Glass SVG filter ────────────────────────────────────────────────────
-// backdrop-filter: url() doesn't propagate SVG displacement to the backdrop in
-// Chrome — blur works but feDisplacementMap is silently ignored there.
-// Instead we apply filter: url() to the semi-transparent color overlay div,
-// making the gradient itself ripple and flow.  The frosted glass underneath
-// comes from a plain backdrop-filter: blur() which is fully supported.
+// ── Liquid Glass SVG filter (screenshot-theme fallback) ─────────────────────────
+// Used only when the WebGL theme's screenshot fails: applies filter: url() to
+// the tint overlay so the gradient itself ripples.
+//
+// This once claimed Chrome ignores feDisplacementMap inside backdrop-filter:
+// url().  It doesn't -- the liquidlive theme below relies on exactly that.  The
+// original test put the backdrop-filter on .wh-glass-filter, a child of the
+// isolation:isolate card, where it could only see the card's own interior.
 function _ensureLiquidGlassDom() {
   if (document.getElementById('wh-lg-svg')) return;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -670,6 +689,95 @@ function _ensureLiquidGlassDom() {
     `</filter>` +
     `</defs>`;
   document.body.appendChild(svg);
+}
+
+// ── Liquid glass via SVG backdrop filter (no screenshot) ──────────────────────
+// Chromium lets backdrop-filter reference an SVG filter, so the browser itself
+// refracts the live page behind the card: no captureVisibleTab, no WebGL
+// texture, no <all_urls>.  The displacement map encodes a rounded-rect bezel:
+// flat (0.5 grey = no shift) across the face, bending toward the rim.
+const LG_W = 340, LG_H = 280, LG_R = 20;   // must match .wh-popup in CSS
+const LG_BEZEL = 28;                        // px of curved rim
+const LG_SCALE = 48;                        // feDisplacementMap scale; max shift is half this
+const LG_BLUR  = 5;                         // frost on the face so card text stays legible
+
+function _lgSdf(px, py) {
+  // Signed distance to the rounded rect, negative inside.
+  const qx = Math.abs(px - LG_W / 2) - (LG_W / 2 - LG_R);
+  const qy = Math.abs(py - LG_H / 2) - (LG_H / 2 - LG_R);
+  const ox = Math.max(qx, 0), oy = Math.max(qy, 0);
+  return Math.hypot(ox, oy) + Math.min(Math.max(qx, qy), 0) - LG_R;
+}
+
+function _lgDisplacementMap(bezel = LG_BEZEL) {
+  const c   = document.createElement('canvas');
+  c.width   = LG_W; c.height = LG_H;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(LG_W, LG_H);
+  const d   = img.data;
+  for (let y = 0; y < LG_H; y++) {
+    for (let x = 0; x < LG_W; x++) {
+      const px = x + 0.5, py = y + 0.5;
+      const s  = _lgSdf(px, py);
+      let dx = 0, dy = 0;
+      if (s < 0 && s > -bezel) {
+        // Outward normal from the SDF gradient.
+        const gx = _lgSdf(px + 0.5, py) - _lgSdf(px - 0.5, py);
+        const gy = _lgSdf(px, py + 0.5) - _lgSdf(px, py - 0.5);
+        const gl = Math.hypot(gx, gy) || 1;
+        // 0 at the rim, 1 where the bezel meets the flat face.  A circular
+        // bezel's slope is steepest at the rim, so refraction is too.
+        const t   = -s / bezel;
+        const mag = Math.pow(1 - t, 2);
+        // Sample inward (toward the centre): a convex rim magnifies, and it
+        // never asks for backdrop pixels outside the card's own box, which the
+        // filter region would clip.
+        dx = -(gx / gl) * mag;
+        dy = -(gy / gl) * mag;
+      }
+      const i = (y * LG_W + x) * 4;
+      d[i]     = Math.round(128 + 127 * dx);
+      d[i + 1] = Math.round(128 + 127 * dy);
+      d[i + 2] = 128;
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR,
+                          bezel = LG_BEZEL, doc = document } = {}) {
+  if (doc.getElementById(id)) return;
+  const map = _lgDisplacementMap(bezel);
+  const disp = (scale, res) =>
+    `<feDisplacementMap in="frost" in2="map" scale="${scale}" ` +
+    `xChannelSelector="R" yChannelSelector="G" result="${res}"/>`;
+  const only = (src, row, res) => {
+    const rows = ['0 0 0 0 0', '0 0 0 0 0', '0 0 0 0 0'];
+    rows[row] = ['1 0 0 0 0', '0 1 0 0 0', '0 0 1 0 0'][row];
+    return `<feColorMatrix in="${src}" type="matrix" values="${rows.join(' ')} 0 0 0 1 0" result="${res}"/>`;
+  };
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = id;
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('style', 'position:fixed;width:0;height:0;pointer-events:none;overflow:hidden;');
+  // Chromatic aberration: red refracts 20% harder than green, blue 20% softer,
+  // the split the WebGL theme settled on.
+  svg.innerHTML =
+    `<filter id="${id}-f" x="0" y="0" width="${LG_W}" height="${LG_H}" ` +
+    `filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" ` +
+    `color-interpolation-filters="sRGB">` +
+      `<feImage href="${map}" x="0" y="0" width="${LG_W}" height="${LG_H}" ` +
+      `preserveAspectRatio="none" result="map"/>` +
+      `<feGaussianBlur in="SourceGraphic" stdDeviation="${blur}" result="frost"/>` +
+      disp(scale * 1.2, 'dr') + disp(scale, 'dg') + disp(scale * 0.8, 'db') +
+      only('dr', 0, 'r') + only('dg', 1, 'g') + only('db', 2, 'b') +
+      `<feComposite in="r"  in2="g" operator="arithmetic" k2="1" k3="1" result="rg"/>` +
+      `<feComposite in="rg" in2="b" operator="arithmetic" k2="1" k3="1" result="rgb"/>` +
+      `<feColorMatrix in="rgb" type="saturate" values="1.35"/>` +
+    `</filter>`;
+  doc.body.appendChild(svg);
 }
 
 // ── WebGL liquid-glass renderer ───────────────────────────────────────────────

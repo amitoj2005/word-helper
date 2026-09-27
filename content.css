@@ -396,6 +396,27 @@
   font-weight: 600;
 }
 
+/* ── Liquid Glass (Live) ─────────────────────────────────────────────────────
+   Layered on .wh-theme-liquid.  The refraction comes from an SVG backdrop
+   filter (see _lgEnsureFilter in content.js), so no screenshot is involved. */
+.wh-theme-liquidlive {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* The caustic glows are centred outside the card and bleed in as wedges. */
+.wh-theme-liquidlive::after { display: none; }
+
+/* Softer than the WebGL theme's streak: at full strength it washes out the top
+   rim, which is where the refraction is most visible. */
+.wh-theme-liquidlive .wh-glass-specular {
+  background: linear-gradient(
+    175deg,
+    rgba(255, 255, 255, 0.50) 0%,
+    rgba(255, 255, 255, 0.16) 9%,
+    rgba(255, 255, 255, 0.00) 22%
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
    Old Dictionary Theme
    ══════════════════════════════════════════════════════════════════════════════ */
