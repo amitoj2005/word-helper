@@ -310,6 +310,10 @@ const PILL_SIZE       = 26;
 const PILL_HOVER_MS   = 300;   // dwell on the pill to open without clicking
 
 let _pillHoverTimer = null;
+// True while showPopup is awaiting storage/screenshot and popupEl is still
+// null.  Without it, releasing Shift after Alt+Shift+D fires a selection probe
+// whose pill lands on top of the card that is already on its way.
+let _popupPending = false;
 
 function closePill() {
   clearTimeout(_pillHoverTimer);
@@ -330,7 +334,7 @@ function computePillPos(pos) {
 
 function showPill(word, pos) {
   if (window !== window.top) return;
-  if (popupEl) return;
+  if (popupEl || _popupPending) return;
   // Same word in the same spot: leave the existing pill alone so it does not
   // re-animate every time the probe re-fires on an unchanged selection.
   if (pillEl && _pillWord === word) return;
@@ -390,6 +394,8 @@ function computePopupPos(rect) {
   return { top, left };
 }
 
+const DICT_TIMEOUT_MS = 8000;
+
 // Themes whose card mounts in document.body instead of the shadow root, so a
 // backdrop-filter on the card can see the page behind it.
 const BODY_THEMES = new Set(['liquid', 'liquidhd', 'liquidlive', 'liquid2', 'frosted']);
@@ -399,7 +405,15 @@ async function showPopup(word, pos) {
   closePopup();
   closePill();
   ensureShadow();
+  _popupPending = true;
+  try {
+    await _showPopupInner(word, pos);
+  } finally {
+    _popupPending = false;
+  }
+}
 
+async function _showPopupInner(word, pos) {
   const rect = { top: pos.y - 24, bottom: pos.y, left: pos.x, right: pos.x + 10, width: 10, height: 24 };
   const { theme = 'glass' } = await chrome.storage.local.get('theme');
 
@@ -422,10 +436,21 @@ async function showPopup(word, pos) {
   popupEl = buildPopup({ state: 'loading', word }, rect, theme, screenshotUrl);
   container.appendChild(popupEl);
 
+  // Only a 404 means "this word has no entry".  Anything else -- a timeout, a
+  // 5xx, a network error -- is the service failing, and saying "No definition
+  // found" then would tell the user their word doesn't exist.  The API's host
+  // does go down; unguarded, a lookup sat on the spinner for ~20s first.
+  const message = text => ({
+    state: 'loaded', word,
+    meanings: [{ partOfSpeech: '', definition: text, example: '', synonyms: [] }],
+  });
   let data;
   try {
-    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
-    if (!res.ok) throw new Error();
+    const res = await fetch(
+      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
+      { signal: AbortSignal.timeout(DICT_TIMEOUT_MS) });
+    if (res.status === 404) throw Object.assign(new Error('no entry'), { noEntry: true });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const [entry] = await res.json();
     const meanings = (entry.meanings ?? []).slice(0, 5).map(m => {
       const def    = m.definitions?.[0];
@@ -444,8 +469,13 @@ async function showPopup(word, pos) {
       state: 'loaded', word,
       meanings: meanings.length ? meanings : [{ partOfSpeech: '', definition: 'No definition found.', example: '', synonyms: [] }],
     };
-  } catch {
-    data = { state: 'loaded', word, meanings: [{ partOfSpeech: '', definition: 'No definition found.', example: '', synonyms: [] }] };
+  } catch (err) {
+    if (err.noEntry) {
+      data = message('No definition found.');
+    } else {
+      console.warn('[Word Helper] dictionary lookup failed:', err.name, err.message);
+      data = message("Couldn't reach the dictionary service. Try again in a moment.");
+    }
   }
 
   // Update in-place so the popup never disappears — no DOM remove/re-add, no
