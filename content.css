@@ -686,3 +686,99 @@
   .wh-popup.wh-leaving                 { animation: wh-spring-fade 120ms ease-in reverse both; }
   .wh-pill.wh-pill-launch              { animation: none; opacity: 0; }
 }
+
+/* ── Old Dictionary: unfurl like a scroll ────────────────────────────────────
+   Instead of the spring, the parchment card unrolls out of the pill: it grows
+   sideways as a thin rolled bar (0-30%), then unrolls away from the pill on a
+   long deceleration, like paper running out of momentum.  JS anchors the card
+   on the sides nearest the pill (.wh-unfurl-up / -right).
+
+   This animates the real width and height, not clip-path: clip-path would clip
+   the card's drop shadow too, and the shadow would pop in at the end.  A resized
+   box carries its shadow with it, and the roller pinned to the leading edge
+   rides along for free. */
+
+.wh-popup.wh-unfurl {
+  animation: wh-unfurl 640ms both;
+}
+
+@keyframes wh-unfurl {
+  0%   { width: 34px;  height: 16px;  opacity: 0; border-radius: 8px;
+         animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1); }
+  12%  { opacity: 1; }
+  30%  { width: 340px; height: 16px;  border-radius: 8px;
+         animation-timing-function: cubic-bezier(0.25, 0.75, 0.25, 1); }
+  100% { width: 340px; height: 280px; opacity: 1; border-radius: 4px; }
+}
+
+/* The body keeps its final size and position while the card grows around it,
+   so the text is revealed rather than reflowed -- and its overflow-y:auto never
+   flashes a scrollbar at the intermediate heights. */
+.wh-popup.wh-unfurl .wh-body {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 340px;
+  height: 280px;
+}
+.wh-popup.wh-unfurl-up    .wh-body { top: auto;  bottom: 0; }
+.wh-popup.wh-unfurl-right .wh-body { left: auto; right: 0; }
+
+/* A roll of the same paper, shaded as a cylinder, casting a little shadow back
+   onto the sheet.  Fades once the sheet is fully open. */
+.wh-scroll-rod {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  z-index: 4;
+  border-radius: 7px;
+  pointer-events: none;
+  background: linear-gradient(to bottom,
+    #b8975c 0%, #efdcb2 28%, #f8edd0 44%, #dcc28e 70%, #8c6c38 100%);
+  box-shadow:
+    0 -2px 5px rgba(80, 50, 10, 0.22),
+    0 0 0 1px rgba(120, 90, 40, 0.35);
+  animation: wh-rod-away 640ms both;
+}
+.wh-unfurl-up .wh-scroll-rod {
+  top: 0;
+  bottom: auto;
+  box-shadow:
+    0 2px 5px rgba(80, 50, 10, 0.22),
+    0 0 0 1px rgba(120, 90, 40, 0.35);
+}
+
+@keyframes wh-rod-away {
+  0%, 86% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
+/* Closing rolls it back up, then draws the bar back into where the pill was. */
+.wh-popup.wh-unfurl.wh-leaving {
+  animation: wh-furl 240ms both;
+}
+.wh-popup.wh-unfurl.wh-leaving .wh-scroll-rod {
+  animation: wh-rod-back 240ms both;
+}
+
+@keyframes wh-furl {
+  0%   { width: 340px; height: 280px; opacity: 1; border-radius: 4px;
+         animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0.6); }
+  65%  { width: 340px; height: 16px;  opacity: 1; border-radius: 8px;
+         animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+  100% { width: 34px;  height: 16px;  opacity: 0; border-radius: 8px; }
+}
+
+@keyframes wh-rod-back {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wh-popup.wh-unfurl            { animation: wh-spring-fade 160ms ease-out both; }
+  .wh-popup.wh-unfurl.wh-leaving { animation: wh-spring-fade 120ms ease-in reverse both; }
+  .wh-scroll-rod                 { display: none; }
+}

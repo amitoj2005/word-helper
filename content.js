@@ -401,8 +401,10 @@ function closePopup() {
   setTimeout(() => el.remove(), LEAVE_MS + 250);
 }
 
+const POPUP_W = 340, POPUP_H = 280;   // must match .wh-popup in content.css
+
 function computePopupPos(rect) {
-  const W = 340, H = 280, GAP = 12;
+  const W = POPUP_W, H = POPUP_H, GAP = 12;
   let top  = rect.bottom + GAP;
   let left = rect.left;
   if (left + W > window.innerWidth  - 8) left = window.innerWidth  - W - 8;
@@ -627,10 +629,28 @@ function buildPopup(data, rect, theme = 'glass', origin = null) {
   el.style.top  = `${top}px`;
   el.style.left = `${left}px`;
 
-  // Spring out of the point the user acted on, so the card reads as coming
-  // from the pill rather than appearing beside it.
-  el.classList.add('wh-spring');
-  if (origin) el.style.transformOrigin = `${origin.x - left}px ${origin.y - top}px`;
+  if (theme === 'dictionary' && origin) {
+    // Unroll like a scroll: a thin rolled bar grows out from under the pill,
+    // then the sheet unrolls away from it.  Anchor the card on the sides
+    // nearest the pill, so the growth starts there whichever way
+    // computePopupPos flipped the card to fit on screen.
+    el.classList.add('wh-unfurl');
+    if (origin.y > top + POPUP_H / 2) {
+      el.classList.add('wh-unfurl-up');
+      el.style.top    = 'auto';
+      el.style.bottom = `${window.innerHeight - top - POPUP_H}px`;
+    }
+    if (origin.x > left + POPUP_W / 2) {
+      el.classList.add('wh-unfurl-right');
+      el.style.left  = 'auto';
+      el.style.right = `${window.innerWidth - left - POPUP_W}px`;
+    }
+  } else {
+    // Spring out of the point the user acted on, so the card reads as coming
+    // from the pill rather than appearing beside it.
+    el.classList.add('wh-spring');
+    if (origin) el.style.transformOrigin = `${origin.x - left}px ${origin.y - top}px`;
+  }
 
   const layers = `
     <div class="wh-glass-filter"></div>
@@ -705,6 +725,12 @@ function buildPopup(data, rect, theme = 'glass', origin = null) {
     el.style.background = 'rgba(255,255,255,0.35)';
     el.querySelector('.wh-glass-filter').style.display = 'none';
     el.querySelector('.wh-glass-overlay').style.display = 'none';
+  }
+
+  if (el.classList.contains('wh-unfurl')) {
+    // The paper roller riding the unrolling edge.  A sibling of .wh-body, so it
+    // survives _updatePopupBody swapping the body's contents.
+    el.insertAdjacentHTML('beforeend', '<div class="wh-scroll-rod" aria-hidden="true"></div>');
   }
 
   if (theme === 'liquidlive') {
