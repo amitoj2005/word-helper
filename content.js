@@ -429,10 +429,18 @@ function computePopupPos(rect) {
 }
 
 // ── Dictionary lookup ─────────────────────────────────────────────────────────
-// dictionaryapi.dev is primary (it has example sentences); Datamuse is the
-// fallback.  The primary's host does go down -- it has been seen returning
-// Cloudflare 522s after ~20s -- so it gets a short timeout, and after a failure
-// it is skipped for a while so only the first lookup of an outage pays for it.
+// dictionaryapi.dev is primary.  Its host does go down -- it has been seen
+// returning Cloudflare 522s after ~20s -- so it gets a short timeout, and after
+// a failure it is skipped for a while so only the first lookup of an outage
+// pays for it.
+//
+// The fallback is Wiktionary, which dictionaryapi.dev is itself built from:
+// one page per spelling (so "grad" never picks up the "Grad" rocket launcher),
+// senses in Wiktionary's order, and example sentences.  Synonyms come from the
+// same sense's synonym line where editors have written one, topped up from
+// Datamuse.  Datamuse's own definitions are the last resort: they merge letter
+// cases, come in no useful order, and keep editorial labels like
+// "(India, Canada, US)".
 const DICT_TIMEOUT_MS    = 3000;
 const PRIMARY_BACKOFF_MS = 5 * 60 * 1000;
 let _primaryDownUntil    = 0;
@@ -448,8 +456,14 @@ async function lookupWord(word) {
         _primaryDownUntil = Date.now() + PRIMARY_BACKOFF_MS;
         console.warn('[Word Helper] dictionaryapi.dev failed, using Datamuse:', err.name, err.message);
       }
-      // A 404 falls through too: Datamuse's coverage is wider.
+      // A 404 falls through too: the fallbacks cover more words.
     }
+  }
+  try {
+    return await _lookupWiktionary(word);
+  } catch (err) {
+    if (err.noEntry) throw err;
+    console.warn('[Word Helper] Wiktionary failed, using Datamuse:', err.name, err.message);
   }
   return _lookupDatamuse(word);
 }
@@ -476,6 +490,460 @@ async function _lookupPrimary(word) {
   });
   if (!meanings.length) throw noEntry();
   return meanings;
+}
+
+// ── Wiktionary fallback ───────────────────────────────────────────────────────
+const WIKT_HEADERS    = { 'Api-User-Agent': 'WordHelper/1.0 (https://github.com/amitoj2005/word-helper)' };
+const WIKT_TIMEOUT_MS = 6000;   // pages like "run" are large; 3s cut them off
+const MAX_SYNONYMS    = 8;
+
+// Parts of speech worth a tab.  Leaves out "Symbol" (big: an ISO language
+// code), "Letter", "Prefix" -- and "Proper noun", since lookups are lowercased.
+const WORD_POS = new Set(['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition',
+                          'conjunction', 'interjection', 'determiner', 'article', 'numeral', 'particle']);
+// Synonyms carrying these qualifiers read as wrong in modern prose.
+const DATED_SYNONYM = /archaic|obsolete|dated|dialect|rare|poetic|nonstandard|regional|scotland|northern|slang|vulgar/i;
+
+function htmlText(html) {
+  const doc = new DOMParser().parseFromString(html || '', 'text/html');
+  // Definitions can embed TemplateStyles <style> blocks, whose CSS would
+  // otherwise read as text: "attractive. .mw-parser-output .defdate{...}".
+  doc.querySelectorAll('style, script, link').forEach(el => el.remove());
+  return doc.body.textContent
+    .replace(/\s*\((?:Can we|Please)[^)]*\)/g, '')              // editors' maintenance notes
+    .replace(/\s+/g, ' ').trim();
+}
+
+// One lookup can reach the same URL more than once ("decisions" follows its
+// noun and verb senses to "decision"), so JSON responses are kept briefly.
+const _jsonCache = new Map();
+function _cachedJson(url, init, check) {
+  if (_jsonCache.has(url)) return _jsonCache.get(url);
+  const p = fetch(url, init).then(check);
+  p.catch(() => _jsonCache.delete(url));
+  _jsonCache.set(url, p);
+  if (_jsonCache.size > 60) _jsonCache.delete(_jsonCache.keys().next().value);
+  return p;
+}
+
+function _wiktFetch(url) {
+  return _cachedJson(url, { headers: WIKT_HEADERS, signal: AbortSignal.timeout(WIKT_TIMEOUT_MS) }, res => {
+    if (res.status === 404) throw noEntry();
+    if (!res.ok) throw new Error(`Wiktionary HTTP ${res.status}`);
+    return res.json();
+  });
+}
+
+// Per-sense definitions: [{ pos, defs: [{ text, example }] }, ...] in page order.
+async function _wiktDefinitions(title) {
+  const data = await _wiktFetch(`https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(title)}`);
+  const blocks = (data.en ?? []).map(b => ({
+    pos: (b.partOfSpeech ?? '').toLowerCase(),
+    defs: (b.definitions ?? []).map(d => {
+      const ex = htmlText(d.parsedExamples?.[0]?.example ?? d.examples?.[0] ?? '');
+      return {
+        // Drop leading editorial labels: "(India, Canada, US) An institution..."
+        text:    htmlText(d.definition).replace(/^(\([^)]*\)\s*)+/, ''),
+        example: ex.length <= 140 ? ex : '',
+      };
+    }),
+  }));
+  if (!blocks.length) throw noEntry();
+  return blocks;
+}
+
+// What each sense says in the page source: its text, its synonym line, and
+// whether it is only a pointer to another entry ("past of run", "clipping of
+// graduate").  The REST endpoint renders inflection pointers as empty strings,
+// so this is the only place to see them.
+// Returns [{ pos, senses: [{ plain, syns, formOf }] }, ...].
+async function _wiktSource(title) {
+  const data = await _wiktFetch('https://en.wiktionary.org/w/api.php?action=parse&prop=wikitext' +
+    `&format=json&formatversion=2&origin=*&page=${encodeURIComponent(title)}`);
+  const text = data.parse?.wikitext ?? '';
+  // Leading newline: on pages like "schools" the English section is line one.
+  const en   = (('\n' + text).split(/\n==English==\n/)[1] ?? '').split(/\n==[^=]/)[0];
+  const blocks = [];
+  const re = /\n(===+)\s*([A-Za-z][A-Za-z ]*?)\s*\1\n([\s\S]*?)(?=\n===|$)/g;
+  for (let m; (m = re.exec(en)); ) {
+    const senses = [];
+    for (const line of m[3].split('\n')) {
+      // A top-level sense: "#" not followed by ":", "*" or "#" (a space is optional).
+      if (/^#(?![:*#])/.test(line))
+        senses.push({ plain: _wikiPlain(line.slice(1)), syns: [], formOf: _parseFormOf(line) });
+      else if (senses.length && /^#:\s*\{\{(?:syn|synonyms)\|en\|/.test(line))
+        senses[senses.length - 1].syns.push(..._parseSynTemplate(line));
+    }
+    blocks.push({ pos: m[2].toLowerCase(), senses });
+  }
+  return blocks;
+}
+
+// Rough wikitext -> text, good enough to recognise a sense in the REST output:
+// "{{sid|en|large}} Of great size, [[large]]." -> "Of great size, large."
+function _wikiPlain(w) {
+  let t = w, prev;
+  // Templates that display a word ({{l|en|expedition}}, {{w|Paris}}) keep it;
+  // every other template (labels, sense ids) goes.
+  t = t.replace(/\{\{(?:l|m|ll|l-self|w|gloss|vern|taxlink|glossary)\|([^{}]*)\}\}/g, (_, args) => {
+    const pos = args.split('|').filter(x => !x.includes('='));
+    return pos.length > 1 && /^[a-z]{2,3}(-[a-z]+)?$/.test(pos[0]) ? pos.at(-1) : pos[0] ?? '';
+  });
+  do { prev = t; t = t.replace(/\{\{[^{}]*\}\}/g, ''); } while (t !== prev);
+  return t.replace(/\[\[(?:[^|\]]*\|)?([^\]]*)\]\]/g, '$1').replace(/<[^>]+>/g, '')
+          .replace(/'{2,}/g, '').replace(/\s+/g, ' ').trim();
+}
+
+const _norm = t => t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+// The REST entry that renders a source sense.  Matched on text, not position:
+// REST also lists sub-senses and blank entries (27 for "big" against 11
+// top-level senses), so the n-th of one is not the n-th of the other.
+function _matchRest(defs, plain) {
+  const key = _norm(plain).slice(0, 24);
+  if (key.length < 6) return null;
+  return defs.find(d => d.text && _norm(d.text).startsWith(key)) ?? null;
+}
+
+// {{past of|en|run}}, {{infl of|en|run||past}}, {{clipping of|en|graduate}} ...
+function _parseFormOf(line) {
+  const m = line.match(/\{\{(?:en-)?([a-z][a-z -]*?) of\|(?:en\|)?([^|}<]+)([^}]*)\}\}/i);
+  if (!m) return null;
+  const kind   = m[1].toLowerCase();
+  const target = m[2].replace(/#.*$/, '').trim();              // "graduate#Noun" -> "graduate"
+  if (/misspelling|misconstruction|eye dialect|pronunciation spelling/.test(kind)) return { target, type: 'misspelling' };
+  if (/clipping|abbreviation|initialism|acronym|short|contraction|ellipsis/.test(kind))  return { target, type: 'short' };
+  if (/alternative|alt|obsolete|archaic|dated|nonstandard|rare|standard spelling|letter-case/.test(kind))
+    return { target, type: 'alt', caseOnly: /letter-case/.test(kind) };
+  return { target, type: 'inflection', form: _inflectionForm(kind + ' ' + m[3].toLowerCase()) };
+}
+
+// Which form a pointer names: "simple past", "infl of ... ||3|s|pres", ...
+function _inflectionForm(t) {
+  if (/plural|\bp\b|\|p\|/.test(t) && !/past|pres/.test(t)) return 'plural';
+  if (/comparative|\bcomp\b/.test(t))                          return 'comparative';
+  if (/superlative|\bsupd?\b/.test(t))                          return 'superlative';
+  if (/present participle|ing form|gerund|pres\|ptcp|\bing\b/.test(t)) return 'ing';
+  if (/third-person|3\|s|\b3s\b/.test(t))                     return '3sg';
+  if (/past participle/.test(t) && !/simple past|past tense/.test(t)) return 'pp';
+  if (/past|\bspast\b/.test(t))                                 return 'past';
+  return null;
+}
+
+// ── Inflecting synonyms ───────────────────────────────────────────────────────
+// A synonym has to match the selected word's form to be pasted in its place:
+// "ran" needs "sprinted", not "sprint"; "schools" needs "academies".  Regular
+// English rules, plus the irregular verbs common enough to turn up as synonyms.
+const IRREGULAR = {
+  arise:['arose','arisen'], be:['was','been'], bear:['bore','borne'], beat:['beat','beaten'], become:['became','become'],
+  begin:['began','begun'], bend:['bent','bent'], bind:['bound','bound'], bite:['bit','bitten'], bleed:['bled','bled'],
+  blow:['blew','blown'], break:['broke','broken'], breed:['bred','bred'], bring:['brought','brought'], build:['built','built'],
+  burst:['burst','burst'], buy:['bought','bought'], cast:['cast','cast'], catch:['caught','caught'], choose:['chose','chosen'],
+  cling:['clung','clung'], come:['came','come'], cost:['cost','cost'], creep:['crept','crept'], cut:['cut','cut'],
+  deal:['dealt','dealt'], dig:['dug','dug'], do:['did','done'], draw:['drew','drawn'], drink:['drank','drunk'],
+  drive:['drove','driven'], eat:['ate','eaten'], fall:['fell','fallen'], feed:['fed','fed'], feel:['felt','felt'],
+  fight:['fought','fought'], find:['found','found'], flee:['fled','fled'], fling:['flung','flung'], fly:['flew','flown'],
+  forbid:['forbade','forbidden'], forget:['forgot','forgotten'], forgive:['forgave','forgiven'], freeze:['froze','frozen'],
+  get:['got','gotten'], give:['gave','given'], go:['went','gone'], grind:['ground','ground'], grow:['grew','grown'],
+  hang:['hung','hung'], have:['had','had'], hear:['heard','heard'], hide:['hid','hidden'], hit:['hit','hit'],
+  hold:['held','held'], hurt:['hurt','hurt'], keep:['kept','kept'], kneel:['knelt','knelt'], know:['knew','known'],
+  lay:['laid','laid'], lead:['led','led'], leap:['leapt','leapt'], leave:['left','left'], lend:['lent','lent'],
+  let:['let','let'], lie:['lay','lain'], light:['lit','lit'], lose:['lost','lost'], make:['made','made'],
+  mean:['meant','meant'], meet:['met','met'], pay:['paid','paid'], put:['put','put'], quit:['quit','quit'],
+  read:['read','read'], ride:['rode','ridden'], ring:['rang','rung'], rise:['rose','risen'], run:['ran','run'],
+  say:['said','said'], see:['saw','seen'], seek:['sought','sought'], sell:['sold','sold'], send:['sent','sent'],
+  set:['set','set'], shake:['shook','shaken'], shine:['shone','shone'], shoot:['shot','shot'], show:['showed','shown'],
+  shrink:['shrank','shrunk'], shut:['shut','shut'], sing:['sang','sung'], sink:['sank','sunk'], sit:['sat','sat'],
+  sleep:['slept','slept'], slide:['slid','slid'], sling:['slung','slung'], speak:['spoke','spoken'], speed:['sped','sped'],
+  spend:['spent','spent'], spin:['spun','spun'], split:['split','split'], spread:['spread','spread'], spring:['sprang','sprung'],
+  stand:['stood','stood'], steal:['stole','stolen'], stick:['stuck','stuck'], sting:['stung','stung'], stride:['strode','stridden'],
+  strike:['struck','struck'], strive:['strove','striven'], swear:['swore','sworn'], sweep:['swept','swept'], swim:['swam','swum'],
+  swing:['swung','swung'], take:['took','taken'], teach:['taught','taught'], tear:['tore','torn'], tell:['told','told'],
+  think:['thought','thought'], throw:['threw','thrown'], thrust:['thrust','thrust'], tread:['trod','trodden'],
+  understand:['understood','understood'], wake:['woke','woken'], wear:['wore','worn'], weave:['wove','woven'],
+  weep:['wept','wept'], win:['won','won'], wind:['wound','wound'], wring:['wrung','wrung'], write:['wrote','written'],
+};
+const IRREGULAR_PLURAL = { man:'men', woman:'women', child:'children', person:'people', foot:'feet', tooth:'teeth',
+  mouse:'mice', goose:'geese', ox:'oxen', criterion:'criteria', phenomenon:'phenomena', analysis:'analyses',
+  crisis:'crises', thesis:'theses', life:'lives', knife:'knives', wife:'wives', leaf:'leaves', half:'halves',
+  wolf:'wolves', self:'selves', shelf:'shelves', thief:'thieves', loaf:'loaves' };
+
+const _cons  = c => /[bcdfghjklmnpqrstvwxz]/.test(c);
+// stop -> stopped, plan -> planned; one short syllable ending consonant-vowel-consonant.
+const _doubles = w => /^[^aeiou]*[aeiou][bdgklmnprtv]$/.test(w);
+const _sForm = w =>
+  /(s|x|z|ch|sh)$/.test(w) ? w + 'es' : (/y$/.test(w) && _cons(w.at(-2)) ? w.slice(0, -1) + 'ies' : w + 's');
+const _edForm = w =>
+  /e$/.test(w) ? w + 'd' : (/y$/.test(w) && _cons(w.at(-2)) ? w.slice(0, -1) + 'ied'
+                         : (_doubles(w) ? w + w.at(-1) + 'ed' : w + 'ed'));
+const _ingForm = w =>
+  /ie$/.test(w) ? w.slice(0, -2) + 'ying' : (/[^eoy]e$/.test(w) ? w.slice(0, -1) + 'ing'
+                                          : (_doubles(w) ? w + w.at(-1) + 'ing' : w + 'ing'));
+// glad -> gladder, happy -> happier, but elated -> more elated.  One syllable,
+// or two ending in -y/-le/-er/-ow, take the suffix; anything longer takes
+// "more"/"most".
+const _syllables = w => Math.max(1, (w.match(/[aeiouy]+/g) ?? []).length - (/[^l]e$/.test(w) ? 1 : 0));
+const _erForm = (w, suf) => {
+  const n = _syllables(w);
+  if (n > 2 || (n === 2 && !/(y|le|er|ow)$/.test(w))) return (suf === 'er' ? 'more ' : 'most ') + w;
+  if (/e$/.test(w)) return w + suf.slice(1);
+  if (/y$/.test(w) && _cons(w.at(-2))) return w.slice(0, -1) + 'i' + suf;
+  return _doubles(w) ? w + w.at(-1) + suf : w + suf;
+};
+
+// "overtake" conjugates like "take": a known prefix on an irregular verb.
+function _irregular(w) {
+  if (IRREGULAR[w]) return IRREGULAR[w];
+  const m = w.match(/^(over|under|out|re|mis|with|fore|up|be|for)(.+)$/);
+  const base = m && IRREGULAR[m[2]];
+  return base ? base.map(f => m[1] + f) : null;
+}
+
+function inflect(phrase, form) {
+  // "cheer up" inflects its verb; a noun phrase inflects its last word.
+  const words = phrase.split(' ');
+  const idx   = form === 'plural' ? words.length - 1 : 0;
+  const w     = words[idx].toLowerCase();
+  let out;
+  switch (form) {
+    case 'plural':      out = IRREGULAR_PLURAL[w] ?? _sForm(w); break;
+    case '3sg':         out = w === 'be' ? 'is' : w === 'have' ? 'has' : _sForm(w); break;
+    case 'past':        out = _irregular(w)?.[0] ?? _edForm(w); break;
+    case 'pp':          out = _irregular(w)?.[1] ?? _edForm(w); break;
+    case 'ing':         out = _ingForm(w); break;
+    case 'comparative': out = _erForm(w, 'er'); break;
+    case 'superlative': out = _erForm(w, 'est'); break;
+    default:            return phrase;
+  }
+  words[idx] = out;
+  return words.join(' ');
+}
+
+function _parseSynTemplate(line) {
+  const inner = line.replace(/^#:\s*\{\{(?:syn|synonyms)\|en\|/, '').replace(/\}\}.*$/, '');
+  const out = [];
+  for (const raw of inner.split('|')) {
+    if (!raw || raw.includes('=') || raw.startsWith('Thesaurus:')) continue;
+    const mods = raw.match(/<[^>]*>/g)?.join(' ') ?? '';          // e.g. stour<q:archaic>
+    if (DATED_SYNONYM.test(mods)) continue;
+    const w = raw.replace(/<[^>]*>/g, '').replace(/\[\[|\]\]/g, '').trim();
+    if (w) out.push(w);
+  }
+  return out;
+}
+
+// Source block for the k-th REST block of a part of speech.  Matched by part of
+// speech and occurrence, not position: the two lists don't always have the
+// same sections, and one extra "Symbol" would shift every block after it.
+function _sourceBlockFor(source, restBlocks, b) {
+  const pos = restBlocks[b].pos;
+  const k   = restBlocks.slice(0, b).filter(x => x.pos === pos).length;
+  return source.filter(x => x.pos === pos)[k];
+}
+
+const _DM_TAG = { noun: 'n', verb: 'v', adjective: 'adj', adverb: 'adv' };
+const _dmFreq = d => parseFloat((d.tags ?? []).find(t => t.startsWith('f:'))?.slice(2) ?? '0');
+// A candidate's main part of speech, not any it can take: "went" can be a
+// noun, but offering it as a synonym for a noun is wrong.
+const _dmPrimary = d => (d.tags ?? []).find(t => ['n', 'v', 'adj', 'adv'].includes(t));
+
+function _datamuse(query, max = 40) {
+  return _cachedJson(`https://api.datamuse.com/words?${query}&md=pf&max=${max}`,
+                     { signal: AbortSignal.timeout(DICT_TIMEOUT_MS) }, res => {
+    if (!res.ok) throw new Error(`Datamuse HTTP ${res.status}`);
+    return res.json();
+  });
+}
+
+// The start of a definition, as a reverse-dictionary query: "To move swiftly",
+// "The act of deciding".  Long definitions return noise, so they're skipped.
+function _definitionClause(text) {
+  const c = text.replace(/^Short for “[^”]*”:\s*/, '').replace(/\([^)]*\)/g, '')
+                .split(/[;.]/)[0].trim();
+  return c && c.split(/\s+/).length <= 8 ? c : null;
+}
+
+// "schools", "schooling", "schoolhouse" -- but not "graduate" for "grad".
+const _DERIVED = /^(s|es|d|ed|ing|ings|er|ers|est|ly|ness|ful|time|house|hood|ship|like|room|work)$/;
+function _isDerivative(candidate, heads) {
+  const c = candidate.toLowerCase();
+  return heads.some(h => {
+    h = h.toLowerCase();
+    return c === h || (c.startsWith(h) && _DERIVED.test(c.slice(h.length)));
+  });
+}
+
+// Builds the synonym row for one sense.  The sources and how far each is
+// trusted were settled by comparing their output on real words:
+//
+//  - curated:  the sense's own synonym line on Wiktionary.  Right sense, but
+//              sometimes thin, and sometimes obscure ("lickety-split").
+//  - pool:     Datamuse "means like" for the word.  Its scores come in tiers:
+//              ~1.0 for words it holds as synonyms, 0.75 merely related, 0.5
+//              noise, so only the top tier is used.  Reliable for adjectives
+//              and adverbs, and for ordinary nouns and verbs, but for a word
+//              with dozens of senses it mixes them ("unraveled" for run).
+//  - reverse:  the reverse dictionary on the definition itself ("To move
+//              swiftly" -> dash, sprint, race).  Sense-specific but drifts, so
+//              only words the pool also contains are taken.
+//
+// Adjectives and adverbs: curated words the pool also knows, in the pool's
+// order; then the pool's top tier; then the remaining curated words.
+// Nouns and verbs: curated first, in Wiktionary's order; if that leaves fewer
+// than three, the reverse-dictionary intersection for many-sensed words, and
+// the pool's top tier for the rest.  That tier describes whichever sense
+// Datamuse treats as core, and its parts of speech show which: for "school"
+// it is half verbs (cultivate, educate), for "big" nearly all adjectives.  So
+// a secondary tab only uses it when its part of speech makes up a real share
+// of the tier -- otherwise it gets outliers ("bragging" for big's noun).  For
+// a many-sensed word it is never used ("pass" for walked).  An empty row is
+// better than a wrong one.
+// Candidates must be commonish single words whose main part of speech fits.
+function _mergeSynonyms(heads, curated, pool, reverse, pos,
+                        { allowPool = true, polysemous = false, primary = true } = {}) {
+  const out  = [];
+  const push = w => {
+    if (out.length < MAX_SYNONYMS && !out.some(o => o.toLowerCase() === w.toLowerCase()) &&
+        !_isDerivative(w, heads)) out.push(w);
+  };
+  const tag     = _DM_TAG[pos];
+  const top     = pool[0]?.score ?? 0;
+  const common  = d => _dmFreq(d) >= 0.5 && !/\s/.test(d.word);
+  const topTier = allowPool ? pool.filter(d => d.score >= top * 0.95 && common(d) && _dmPrimary(d) === tag) : [];
+
+  if (pos === 'adjective' || pos === 'adverb') {
+    const known = new Map(pool.map((d, i) => [d.word.toLowerCase(), i]));
+    curated.filter(w => known.has(w.toLowerCase()))
+           .sort((x, y) => known.get(x.toLowerCase()) - known.get(y.toLowerCase()))
+           .forEach(push);
+    topTier.forEach(d => push(d.word));
+    curated.forEach(push);
+    return out;
+  }
+
+  curated.forEach(push);
+  if (out.length >= 3 || !tag) return out;
+  const cap = out.length ? 5 : MAX_SYNONYMS;
+  if (polysemous && reverse) {
+    const related = new Set(pool.map(d => d.word));
+    for (const d of reverse) {
+      if (out.length >= cap) break;
+      if ((d.tags ?? []).includes(tag) && common(d) && related.has(d.word)) push(d.word);
+    }
+  } else if (!polysemous) {
+    const tier  = pool.filter(d => d.score >= top * 0.95 && common(d));
+    const share = tier.length ? tier.filter(d => _dmPrimary(d) === tag).length / tier.length : 0;
+    if (primary || share >= 0.3)
+      for (const d of topTier) { if (out.length >= cap) break; push(d.word); }
+  }
+  return out;
+}
+
+async function _lookupWiktionary(word) {
+  // Titles are case-sensitive, and a capitalised selection is usually just the
+  // start of a sentence: "School" should find school, not a proper noun.
+  const lower  = word.toLowerCase();
+  const titles = lower === word ? [word] : [lower, word];
+  let title, blocks;
+  for (const t of titles) {
+    try { blocks = await _wiktDefinitions(t); title = t; break; }
+    catch (err) { if (!err.noEntry || t === titles[titles.length - 1]) throw err; }
+  }
+  const source = await _wiktSource(title).catch(() => []);
+
+  // The first real sense of each part of speech.  The page source is the
+  // backbone -- it knows sense order, synonym lines and pointers -- and REST
+  // supplies the rendered text and example for whichever sense that is.
+  const picks = [];
+  blocks.forEach((blk, b) => {
+    if (!WORD_POS.has(blk.pos) || picks.some(p => p.pos === blk.pos)) return;
+    const src = _sourceBlockFor(source, blocks, b);
+    for (const sense of src?.senses ?? []) {
+      if (sense.formOf?.caseOnly) continue;   // "letter-case form of Grad": a different word
+      if (!/[a-z]/i.test(sense.plain)) sense.plain = '';   // "{{misspelling of|en|the}}." -> "."
+      if (!sense.formOf && !sense.plain) continue;
+      // The first real sense is the one shown, even if its text can't be
+      // matched to a REST entry exactly -- skipping on would show a minor
+      // sense ("Very soon." for quickly).  Unmatched, REST's first entry is
+      // the likeliest rendering.
+      // A pointer that won't be followed (a misspelling) shows REST's
+      // rendering of it: "Deliberate misspelling of the, for humorous effect."
+      const followed = sense.formOf && sense.formOf.type !== 'misspelling';
+      const def = _matchRest(blk.defs, sense.plain)
+               ?? (followed ? null : blk.defs.find(d => d.text))
+               ?? { text: sense.plain, example: '' };
+      picks.push({ pos: blk.pos, def, formOf: sense.formOf, syns: sense.syns, nSenses: src.senses.length });
+      return;
+    }
+    // No usable source: fall back to REST's first non-pointer sense.
+    const def = blk.defs.find(d => d.text && !/^alternative (letter-case )?form of/i.test(d.text));
+    if (def) picks.push({ pos: blk.pos, def, formOf: null, syns: [], nSenses: 0 });
+  });
+  // "ran" is mostly "past of run"; that reading goes ahead of the rare noun.
+  picks.sort((x, y) => (y.formOf?.type === 'inflection') - (x.formOf?.type === 'inflection'));
+  // For a word that is mainly an inflection, its own Datamuse list is made of
+  // other inflections ("ran" -> "came", "went"), so its minor senses don't
+  // draw on it.
+  const inflectedWord = picks.some(p => p.formOf?.type === 'inflection');
+
+  const meanings = await Promise.all(picks.slice(0, 5).map(async (pick, idx) => {
+    let text = pick.def.text, example = pick.def.example, curated = pick.syns;
+    let lemma = title, form = null, nSenses = pick.nSenses;
+    const heads = [title];
+    const f = pick.formOf;
+    if (f && f.type !== 'misspelling') {
+      // Follow the pointer and show the real entry's first sense.
+      try {
+        const [tBlocks, tSource] = await Promise.all([
+          _wiktDefinitions(f.target), _wiktSource(f.target).catch(() => []),
+        ]);
+        const tSrc   = tSource.find(x => x.pos === pick.pos);
+        const tSense = tSrc?.senses.find(s => !s.formOf);
+        const tb     = tBlocks.find(x => x.pos === pick.pos) ?? tBlocks.find(x => WORD_POS.has(x.pos));
+        const td     = (tSense && tb && _matchRest(tb.defs, tSense.plain)) || tb?.defs.find(d => d.text);
+        if (td) {
+          example = example || td.example;
+          if (f.type === 'short') {
+            // "grad" -> the full word is the best synonym there is.
+            text    = `Short for “${f.target}”: ${td.text.charAt(0).toLowerCase()}${td.text.slice(1)}`;
+            curated = [f.target, ...curated, ...(tSense?.syns ?? [])];
+          } else {
+            text  = td.text;
+            heads.push(f.target);
+            if (curated.length < 3) curated = tSense?.syns ?? curated;
+            nSenses = tSrc?.senses.length ?? nSenses;
+            // An inflected word's own Datamuse list is noise ("ran" -> "came,
+            // went"): draw on the lemma's, then put every synonym into the
+            // selected word's form.
+            if (f.type === 'inflection') { lemma = f.target; form = f.form; }
+          }
+        }
+      } catch { /* keep what the page itself said */ }
+    }
+    if (!text && f) text = `${f.type === 'misspelling' ? 'Misspelling' : 'Form'} of “${f.target}”.`;
+    if (!text) return null;
+
+    // Many senses means the word-level lists blur them; "run" has dozens.
+    const polysemous = nSenses >= 10;
+    const clause = polysemous ? _definitionClause(text) : null;
+    // The word's list is fetched deep (100) so a many-sensed word's real
+    // synonyms ("sprint" for run), ranked below its other senses, are there.
+    const [pool, reverse] = await Promise.all([
+      _datamuse(`ml=${encodeURIComponent(lemma)}`, 100).catch(() => []),
+      clause ? _datamuse(`ml=${encodeURIComponent(clause)}`).catch(() => null) : null,
+    ]);
+    let synonyms = _mergeSynonyms([...heads, lemma], curated, pool, reverse, pick.pos, {
+      allowPool: !inflectedWord || lemma !== title,
+      polysemous,
+      primary: idx === 0,
+    });
+    if (form) synonyms = synonyms.map(w => inflect(w, form)).filter(w => !_isDerivative(w, heads));
+    return { partOfSpeech: pick.pos, definition: text, example, synonyms };
+  }));
+
+  const found = meanings.filter(Boolean);
+  if (!found.length) throw noEntry();
+  return found;
 }
 
 const DATAMUSE_POS = { n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb' };

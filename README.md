@@ -30,7 +30,8 @@ and part of speech — plus one-click synonyms that replace the word in place.
 - **One-click synonym replacement.** Click a synonym and it replaces the selected word directly in the document, matching the original capitalisation and preserving a trailing space.
 - **Never touches your clipboard.** Reading the selection out of Google Docs requires provoking a copy, so the extension intercepts it before anything reaches the OS clipboard. Details below.
 - **Four popup themes**, chosen from the toolbar button.
-- **Resilient lookups.** If the primary dictionary is slow or down, it falls back to Datamuse within 3 seconds and skips the primary for five minutes, so only the first lookup of an outage waits.
+- **Resilient lookups.** If the primary dictionary is slow or down, it falls back to Wiktionary within 3 seconds and skips the primary for five minutes, so only the first lookup of an outage waits.
+- **Synonyms for the sense on screen.** Synonyms come from that exact sense's entry on Wiktionary where editors have written them, and are topped up from Datamuse only where its results are trustworthy for that part of speech. Inflected words get inflected synonyms: *ran* → *sprinted, raced*; *schools* → *academies, colleges*; *happier* → *gladder, merrier*.
 - **Keyboard and context-menu access** — `Alt+Shift+D`, or right-click → *Look up "…"*.
 
 ### Themes
@@ -149,9 +150,10 @@ That's the whole list — no host permissions. The content scripts run only on
 site access Chrome shows at install is Google Docs.
 
 No analytics, no tracking, no account. The only network requests are for the
-word you looked up — to `api.dictionaryapi.dev`, and to `api.datamuse.com` as a
-fallback. Neither needs a permission: in Manifest V3 a content script's requests
-follow the page's CORS rules, and both APIs allow Google Docs.
+word you looked up — to `api.dictionaryapi.dev`, and as fallbacks to
+`en.wiktionary.org` and `api.datamuse.com`. None needs a permission: in Manifest
+V3 a content script's requests follow the page's CORS rules, and all three
+allow Google Docs.
 
 ---
 
@@ -183,7 +185,9 @@ values past 0/255. Requires Pillow.
 
 ## Credits
 
-Definitions from [Free Dictionary API](https://dictionaryapi.dev/) and
+Definitions and synonyms from [Free Dictionary API](https://dictionaryapi.dev/),
+[Wiktionary](https://en.wiktionary.org/) (text available under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)), and
 [Datamuse](https://www.datamuse.com/api/).
 
 ## License
