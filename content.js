@@ -34,6 +34,15 @@ function ensureShadow() {
   shadowRoot.appendChild(link);
 }
 
+// The pill and card live in the shadow root, styled by a <link> that loads
+// asynchronously.  Created lazily on the first pill, the first pill rendered
+// unstyled -- static, in the top-left corner -- until the sheet arrived.  So
+// the top frame sets it up as soon as there is a document to attach to.
+if (window === window.top) {
+  if (document.documentElement) ensureShadow();
+  else document.addEventListener('readystatechange', ensureShadow, { once: true });
+}
+
 // Loads content.css into the main document's <head> so liquid-theme popups
 // appended to document.body get the same styles as shadow-DOM popups.
 function ensureLiquidGlassStylesheet() {
@@ -55,13 +64,14 @@ bc.addEventListener('message', async (e) => {
     _savedRange     = null;
     _savedSuffix    = '';
 
-    // getSelection() is empty until execCommand('copy') prods Google Docs into
-    // syncing its internal cursor to the DOM — so we still need localCopyRead.
-    // The capture-phase preventDefault inside it stops the browser from actually
-    // writing to the system clipboard; Google Docs still calls setData() so we
-    // can read the text, but the real clipboard is never touched.
-    let rawText = window.getSelection()?.toString() ?? '';
-    if (!rawText.trim()) rawText = await localCopyRead() ?? '';
+    // Ask Docs for its current selection first (localCopyRead).  This frame's
+    // DOM selection is only synced when Docs is prodded, so after one lookup it
+    // can keep holding the previous word -- every later pill then offered that
+    // word.  The capture-phase preventDefault inside localCopyRead stops the
+    // browser from writing to the system clipboard; Docs still calls setData()
+    // so the text can be read, but the real clipboard is never touched.
+    let rawText = await localCopyRead() ?? '';
+    if (!rawText.trim()) rawText = window.getSelection()?.toString() ?? '';
 
     const trimmed = rawText.trim();
     console.log('[Word Helper] TRIGGER_COPY resolved:', JSON.stringify(rawText));
@@ -79,6 +89,8 @@ bc.addEventListener('message', async (e) => {
       bc.postMessage({ type: 'FOUND', word: trimmed, pos: e.data.pos, direct: e.data.direct });
     }
   }
+
+  if (e.data.type === 'CLOSE' && window === window.top) { closePopup(); closePill(); }
 
   if (e.data.type === 'FOUND' && window === window.top && !popupEl) {
     console.log('[Word Helper] FOUND via broadcast:', e.data.word, '| direct:', !!e.data.direct);
@@ -126,7 +138,7 @@ bc.addEventListener('message', async (e) => {
 // own select-a-word gesture, so firing on it interrupted ordinary editing.
 // Alt+Shift+D and the right-click menu stay "direct": they skip the pill,
 // because the user has already expressed the intent explicitly.
-const PROBE_DELAY_MS = 180;   // debounce after a selection gesture settles
+const PROBE_DELAY_MS = 120;   // debounce after a selection gesture settles
 const DRAG_SLOP_PX   = 3;     // below this, a pointerup is a caret click
 
 let _probeTimer = null;
@@ -176,7 +188,13 @@ function onClick(e) {
 }
 
 function onKeyDown(e) {
-  if (e.key === 'Escape') { closePopup(); closePill(); return; }
+  if (e.key === 'Escape') {
+    closePopup(); closePill();
+    // In Docs the key lands in the hidden text frame, but the card lives in
+    // the top frame.
+    if (window !== window.top) bc.postMessage({ type: 'CLOSE' });
+    return;
+  }
   if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
     e.preventDefault();
     e.stopPropagation();
@@ -206,45 +224,39 @@ function onPointerDown(e) {
 
 // ── Core lookup ───────────────────────────────────────────────────────────────
 async function triggerLookup(pos, direct = true) {
-  const sel     = window.getSelection();
-  const rawSel  = sel?.toString() ?? '';
-  const trimmed = rawSel.trim();
-  console.log('[Word Helper] triggerLookup getSelection:', JSON.stringify(rawSel), '| top:', window === window.top);
+  const isWord = t => t && /^[a-zA-Z'-]{1,40}$/.test(t);
 
-  if (trimmed && /^[a-zA-Z'-]{1,40}$/.test(trimmed)) {
-    if (window === window.top) {
+  if (window === window.top) {
+    const rawSel  = window.getSelection()?.toString() ?? '';
+    const trimmed = rawSel.trim();
+    console.log('[Word Helper] triggerLookup getSelection:', JSON.stringify(rawSel), '| top: true');
+    if (isWord(trimmed)) {
       if (direct) showPopup(trimmed, pos);
       else        showPill(trimmed, pos);
-    } else {
-      _iHaveSelection = true;
-      _savedSuffix    = rawSel !== rawSel.trimEnd() ? ' ' : '';
-      _savedRange     = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
-      window.name     = 'wh-editor-active';
-      console.log('[Word Helper] found in iframe getSelection:', trimmed, '| suffix:', JSON.stringify(_savedSuffix));
-      bc.postMessage({ type: 'FOUND', word: trimmed, pos, direct });
+      return;
     }
+    console.log('[Word Helper] no word in this frame, broadcasting TRIGGER_COPY');
+    bc.postMessage({ type: 'TRIGGER_COPY', pos, direct });
     return;
   }
 
-  // In an iframe where getSelection() is still empty (Google Docs hasn't synced
-  // its cursor to the DOM yet), try a clipboard-safe copy read before giving up.
-  if (window !== window.top) {
-    const raw = await localCopyRead() ?? '';
-    const t   = raw.trim();
-    if (t && /^[a-zA-Z'-]{1,40}$/.test(t)) {
-      _iHaveSelection = true;
-      // After execCommand, Google Docs syncs DOM selection — use that for suffix.
-      const selNow = window.getSelection();
-      const rawSel = selNow?.toString() ?? '';
-      _savedSuffix = (rawSel || raw) !== (rawSel || raw).trimEnd() ? ' ' : '';
-      _savedRange  = selNow?.rangeCount > 0 ? selNow.getRangeAt(0).cloneRange() : null;
-      window.name  = 'wh-editor-active';
-      console.log('[Word Helper] found in iframe localCopyRead:', t, '| suffix:', JSON.stringify(_savedSuffix));
-      bc.postMessage({ type: 'FOUND', word: t, pos, direct });
-      return;
-    }
+  // In a frame (Docs' hidden text frame): ask Docs for its selection first --
+  // this frame's DOM selection can still hold the previous word (see the
+  // TRIGGER_COPY handler) -- and fall back to the DOM selection.
+  const raw = (await localCopyRead()) || window.getSelection()?.toString() || '';
+  const t   = raw.trim();
+  if (isWord(t)) {
+    _iHaveSelection = true;
+    // After execCommand, Google Docs syncs DOM selection — use that for suffix.
+    const selNow = window.getSelection();
+    const rawSel = selNow?.toString() ?? '';
+    _savedSuffix = (rawSel || raw) !== (rawSel || raw).trimEnd() ? ' ' : '';
+    _savedRange  = selNow?.rangeCount > 0 ? selNow.getRangeAt(0).cloneRange() : null;
+    window.name  = 'wh-editor-active';
+    console.log('[Word Helper] found in frame:', t, '| suffix:', JSON.stringify(_savedSuffix));
+    bc.postMessage({ type: 'FOUND', word: t, pos, direct });
+    return;
   }
-
   console.log('[Word Helper] no word in this frame, broadcasting TRIGGER_COPY');
   bc.postMessage({ type: 'TRIGGER_COPY', pos, direct });
 }
@@ -398,6 +410,7 @@ function showPill(word, pos) {
 
   shadowRoot.appendChild(el);
   pillEl = el;
+  lookupCached(word);                          // prefetch: see lookupCached
   console.log('[Word Helper] pill shown for', word);
 }
 
@@ -447,25 +460,102 @@ let _primaryDownUntil    = 0;
 
 const noEntry = () => Object.assign(new Error('no entry'), { noEntry: true });
 
+// Wiktionary first: it is Wikimedia infrastructure, the tuned sense and
+// synonym handling lives in that path, and it is the largest of the three
+// sources -- dictionaryapi.dev is built from a subset of it -- so its "no such
+// word" is final.  The others only step in when Wiktionary can't be reached.
 async function lookupWord(word) {
-  if (Date.now() >= _primaryDownUntil) {
-    try {
-      return await _lookupPrimary(word);
-    } catch (err) {
-      if (!err.noEntry) {
-        _primaryDownUntil = Date.now() + PRIMARY_BACKOFF_MS;
-        console.warn('[Word Helper] dictionaryapi.dev failed, using Datamuse:', err.name, err.message);
-      }
-      // A 404 falls through too: the fallbacks cover more words.
-    }
-  }
   try {
     return await _lookupWiktionary(word);
   } catch (err) {
     if (err.noEntry) throw err;
-    console.warn('[Word Helper] Wiktionary failed, using Datamuse:', err.name, err.message);
+    console.warn('[Word Helper] Wiktionary failed:', err.name, err.message);
   }
-  return _lookupDatamuse(word);
+  // The fallbacks race rather than queue: dictionaryapi.dev, when down, hangs
+  // until its timeout, and Datamuse answers in a couple of hundred ms.
+  const primary = Date.now() < _primaryDownUntil
+    ? Promise.reject(new Error('backed off'))
+    : _lookupPrimary(word).catch(err => {
+        if (!err.noEntry) {
+          _primaryDownUntil = Date.now() + PRIMARY_BACKOFF_MS;
+          console.warn('[Word Helper] dictionaryapi.dev failed:', err.name, err.message);
+        }
+        throw err;
+      });
+  try {
+    return await Promise.any([primary, _lookupDatamuse(word)]);
+  } catch (agg) {
+    throw agg.errors.find(e => !e.noEntry) ?? agg.errors[0];
+  }
+}
+
+// ── Lookup cache and prefetch ─────────────────────────────────────────────────
+// A lookup starts the moment the pill appears, not when it is clicked:
+// reaching for the pill takes a few hundred milliseconds, which covers the
+// network, so the card usually opens with its content already there.  Results
+// are also kept across tabs and reloads, so a word seen before is instant.
+const LOOKUP_STORE_PREFIX = 'lk3:';            // bump when result shapes change
+const LOOKUP_STORE_MAX    = 400;
+const LOOKUP_TTL_MS       = 14 * 24 * 60 * 60 * 1000;
+const _lookups = new Map();                     // word -> { promise, settled, meanings, error }
+
+function lookupCached(word) {
+  const key = word.toLowerCase();
+  const hit = _lookups.get(key);
+  // A failed lookup is retried; "no such word" is remembered.
+  if (hit && !(hit.settled && hit.error && !hit.error.noEntry)) return hit;
+
+  const entry = { promise: null, settled: false, meanings: null, error: null };
+  entry.promise = (async () => {
+    const stored = await _readStoredLookup(key);
+    if (stored) return stored;
+    const meanings = await lookupWord(word);
+    _writeStoredLookup(key, meanings);
+    return meanings;
+  })().then(m => { entry.meanings = m; entry.settled = true; return m; },
+            e => { entry.error = e;    entry.settled = true; throw e; });
+  entry.promise.catch(() => {});                // failures are read from entry.error
+  _lookups.set(key, entry);
+  if (_lookups.size > 100) _lookups.delete(_lookups.keys().next().value);
+  return entry;
+}
+
+async function _readStoredLookup(key) {
+  try {
+    const id = LOOKUP_STORE_PREFIX + key;
+    const rec = (await chrome.storage.local.get(id))[id];
+    return rec && Date.now() - rec.t < LOOKUP_TTL_MS ? rec.m : null;
+  } catch { return null; }                       // storage is an optimisation only
+}
+
+async function _writeStoredLookup(key, meanings) {
+  try {
+    const id = LOOKUP_STORE_PREFIX + key;
+    const { lkIndex = [] } = await chrome.storage.local.get('lkIndex');
+    const index   = lkIndex.filter(k => k !== id).concat(id);
+    const evicted = index.splice(0, Math.max(0, index.length - LOOKUP_STORE_MAX));
+    await chrome.storage.local.set({ [id]: { t: Date.now(), m: meanings }, lkIndex: index });
+    if (evicted.length) await chrome.storage.local.remove(evicted);
+  } catch { /* storage is an optimisation only */ }
+}
+
+// The card's data for a settled lookup.
+function _cardData(word, entry) {
+  if (entry.meanings) return { state: 'loaded', word, meanings: entry.meanings };
+  const err = entry.error ?? {};
+  // noEntry means the sources answered and none knows the word.  Any other
+  // error is the services failing -- "No definition found" would then tell the
+  // user their word doesn't exist.
+  if (!err.noEntry) console.warn('[Word Helper] all dictionary sources failed:', err.name, err.message);
+  return {
+    state: 'loaded', word,
+    meanings: [{
+      partOfSpeech: '', example: '', synonyms: [],
+      definition: err.noEntry
+        ? 'No definition found.'
+        : "Couldn't reach the dictionary service. Try again in a moment.",
+    }],
+  };
 }
 
 async function _lookupPrimary(word) {
@@ -493,8 +583,11 @@ async function _lookupPrimary(word) {
 }
 
 // ── Wiktionary fallback ───────────────────────────────────────────────────────
-const WIKT_HEADERS    = { 'Api-User-Agent': 'WordHelper/1.0 (https://github.com/amitoj2005/word-helper)' };
-const WIKT_TIMEOUT_MS = 6000;   // pages like "run" are large; 3s cut them off
+// No custom headers (Wikimedia suggests an Api-User-Agent, but only
+// suggests): any non-simple header makes each request a CORS preflight, and
+// preflights are cached per URL -- so every new word would pay an extra round
+// trip before the real one.
+const WIKT_TIMEOUT_MS = 2500;   // a stalled request falls back instead of hanging the card
 const MAX_SYNONYMS    = 8;
 
 // Parts of speech worth a tab.  Leaves out "Symbol" (big: an ISO language
@@ -503,16 +596,6 @@ const WORD_POS = new Set(['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'pre
                           'conjunction', 'interjection', 'determiner', 'article', 'numeral', 'particle']);
 // Synonyms carrying these qualifiers read as wrong in modern prose.
 const DATED_SYNONYM = /archaic|obsolete|dated|dialect|rare|poetic|nonstandard|regional|scotland|northern|slang|vulgar/i;
-
-function htmlText(html) {
-  const doc = new DOMParser().parseFromString(html || '', 'text/html');
-  // Definitions can embed TemplateStyles <style> blocks, whose CSS would
-  // otherwise read as text: "attractive. .mw-parser-output .defdate{...}".
-  doc.querySelectorAll('style, script, link').forEach(el => el.remove());
-  return doc.body.textContent
-    .replace(/\s*\((?:Can we|Please)[^)]*\)/g, '')              // editors' maintenance notes
-    .replace(/\s+/g, ' ').trim();
-}
 
 // One lookup can reach the same URL more than once ("decisions" follows its
 // noun and verb senses to "decision"), so JSON responses are kept briefly.
@@ -527,82 +610,83 @@ function _cachedJson(url, init, check) {
 }
 
 function _wiktFetch(url) {
-  return _cachedJson(url, { headers: WIKT_HEADERS, signal: AbortSignal.timeout(WIKT_TIMEOUT_MS) }, res => {
+  return _cachedJson(url, { signal: AbortSignal.timeout(WIKT_TIMEOUT_MS) }, res => {
     if (res.status === 404) throw noEntry();
     if (!res.ok) throw new Error(`Wiktionary HTTP ${res.status}`);
     return res.json();
   });
 }
 
-// Per-sense definitions: [{ pos, defs: [{ text, example }] }, ...] in page order.
-async function _wiktDefinitions(title) {
-  const data = await _wiktFetch(`https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(title)}`);
-  const blocks = (data.en ?? []).map(b => ({
-    pos: (b.partOfSpeech ?? '').toLowerCase(),
-    defs: (b.definitions ?? []).map(d => {
-      const ex = htmlText(d.parsedExamples?.[0]?.example ?? d.examples?.[0] ?? '');
-      return {
-        // Drop leading editorial labels: "(India, Canada, US) An institution..."
-        text:    htmlText(d.definition).replace(/^(\([^)]*\)\s*)+/, ''),
-        example: ex.length <= 140 ? ex : '',
-      };
-    }),
-  }));
-  if (!blocks.length) throw noEntry();
-  return blocks;
-}
-
-// What each sense says in the page source: its text, its synonym line, and
-// whether it is only a pointer to another entry ("past of run", "clipping of
-// graduate").  The REST endpoint renders inflection pointers as empty strings,
-// so this is the only place to see them.
-// Returns [{ pos, senses: [{ plain, syns, formOf }] }, ...].
+// Everything a lookup needs comes from the page source, in one request:
+// senses in Wiktionary's order, their text, example sentences, synonym lines,
+// and whether a sense only points at another entry ("past of run", "clipping
+// of graduate").  (The REST definition endpoint renders pages on demand and
+// took 0.5-2s for words outside Wikimedia's cache.)  The source is read with
+// action=query&prop=revisions, which returns it from storage as-is:
+// action=parse&prop=wikitext returns the same text but still runs the parser,
+// and measured 0.4-2.3s on first fetch against 0.14-0.31s for this.
+// Returns [{ pos, senses: [{ plain, example, syns, formOf }] }, ...], or throws
+// noEntry when the page or its English section doesn't exist.
 async function _wiktSource(title) {
-  const data = await _wiktFetch('https://en.wiktionary.org/w/api.php?action=parse&prop=wikitext' +
-    `&format=json&formatversion=2&origin=*&page=${encodeURIComponent(title)}`);
-  const text = data.parse?.wikitext ?? '';
+  const data = await _wiktFetch('https://en.wiktionary.org/w/api.php?action=query&prop=revisions' +
+    '&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*' +
+    `&titles=${encodeURIComponent(title)}`);
+  if (data.error) throw new Error(`Wiktionary API ${data.error.code}`);
+  const pg = data.query?.pages?.[0];
+  if (!pg || pg.missing || pg.invalid) throw noEntry();
+  const text = pg.revisions?.[0]?.slots?.main?.content ?? '';
   // Leading newline: on pages like "schools" the English section is line one.
   const en   = (('\n' + text).split(/\n==English==\n/)[1] ?? '').split(/\n==[^=]/)[0];
+  if (!en) throw noEntry();
   const blocks = [];
   const re = /\n(===+)\s*([A-Za-z][A-Za-z ]*?)\s*\1\n([\s\S]*?)(?=\n===|$)/g;
   for (let m; (m = re.exec(en)); ) {
     const senses = [];
     for (const line of m[3].split('\n')) {
       // A top-level sense: "#" not followed by ":", "*" or "#" (a space is optional).
-      if (/^#(?![:*#])/.test(line))
-        senses.push({ plain: _wikiPlain(line.slice(1)), syns: [], formOf: _parseFormOf(line) });
-      else if (senses.length && /^#:\s*\{\{(?:syn|synonyms)\|en\|/.test(line))
-        senses[senses.length - 1].syns.push(..._parseSynTemplate(line));
+      if (/^#(?![:*#])/.test(line)) {
+        senses.push({ plain: _wikiPlain(line.slice(1)), example: '', syns: [], formOf: _parseFormOf(line) });
+        continue;
+      }
+      const cur = senses[senses.length - 1];
+      if (!cur) continue;
+      if (/^#:\s*\{\{(?:syn|synonyms)\|en\|/.test(line)) cur.syns.push(..._parseSynTemplate(line));
+      else if (!cur.example && /^#:\s*\{\{(?:ux|uxi|usex)\|en\|/.test(line)) cur.example = _wikiExample(line);
     }
     blocks.push({ pos: m[2].toLowerCase(), senses });
   }
   return blocks;
 }
 
-// Rough wikitext -> text, good enough to recognise a sense in the REST output:
-// "{{sid|en|large}} Of great size, [[large]]." -> "Of great size, large."
+// "#: {{ux|en|Our children attend a public '''school''' nearby.}}" -> the sentence
+function _wikiExample(line) {
+  const inner = line.replace(/^#:\s*\{\{(?:ux|uxi|usex)\|en\|/, '').replace(/\}\}\s*$/, '');
+  const text  = _wikiPlain(inner.split(/\|(?:t|translation|q|qq|ref|inline)=/)[0]);
+  return text.length <= 140 ? text : '';
+}
+
+// Wikitext -> readable text: "{{lb|en|informal}} Of great size, [[large]]." ->
+// "Of great size, large."  Labels, qualifiers and sense ids are dropped (that
+// is what kept "(India, Canada, US)" off the card); templates that display a
+// word keep it.
+const _ENTITIES = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", ndash: '–', mdash: '—', hellip: '…' };
 function _wikiPlain(w) {
-  let t = w, prev;
-  // Templates that display a word ({{l|en|expedition}}, {{w|Paris}}) keep it;
-  // every other template (labels, sense ids) goes.
-  t = t.replace(/\{\{(?:l|m|ll|l-self|w|gloss|vern|taxlink|glossary)\|([^{}]*)\}\}/g, (_, args) => {
+  let t = w.replace(/<!--[\s\S]*?-->/g, '')
+           .replace(/<ref[^>]*\/>/g, '').replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, '');
+  // {{1|rapidly}} renders "Rapidly": case templates keep their word, recased.
+  t = t.replace(/\{\{(1|cap|ucfirst|lcfirst)\|([^{}|]*)\}\}/g, (_, fn, word) =>
+    fn === 'lcfirst' ? word.charAt(0).toLowerCase() + word.slice(1)
+                     : word.charAt(0).toUpperCase() + word.slice(1));
+  // {{l|en|expedition}}, {{w|Paris}}, {{n-g|Used to ...}}: keep the displayed text.
+  t = t.replace(/\{\{(?:l|m|ll|l-self|w|gloss|vern|taxlink|glossary|n-g|ngd|non-gloss definition|non-gloss)\|([^{}]*)\}\}/g, (_, args) => {
     const pos = args.split('|').filter(x => !x.includes('='));
     return pos.length > 1 && /^[a-z]{2,3}(-[a-z]+)?$/.test(pos[0]) ? pos.at(-1) : pos[0] ?? '';
   });
+  let prev;
   do { prev = t; t = t.replace(/\{\{[^{}]*\}\}/g, ''); } while (t !== prev);
   return t.replace(/\[\[(?:[^|\]]*\|)?([^\]]*)\]\]/g, '$1').replace(/<[^>]+>/g, '')
-          .replace(/'{2,}/g, '').replace(/\s+/g, ' ').trim();
-}
-
-const _norm = t => t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-
-// The REST entry that renders a source sense.  Matched on text, not position:
-// REST also lists sub-senses and blank entries (27 for "big" against 11
-// top-level senses), so the n-th of one is not the n-th of the other.
-function _matchRest(defs, plain) {
-  const key = _norm(plain).slice(0, 24);
-  if (key.length < 6) return null;
-  return defs.find(d => d.text && _norm(d.text).startsWith(key)) ?? null;
+          .replace(/'{2,}/g, '').replace(/&(#39|[a-z]+);/g, (m, e) => _ENTITIES[e] ?? m)
+          .replace(/\s+([,.;:])/g, '$1').replace(/\s+/g, ' ').trim();
 }
 
 // {{past of|en|run}}, {{infl of|en|run||past}}, {{clipping of|en|graduate}} ...
@@ -732,15 +816,6 @@ function _parseSynTemplate(line) {
   return out;
 }
 
-// Source block for the k-th REST block of a part of speech.  Matched by part of
-// speech and occurrence, not position: the two lists don't always have the
-// same sections, and one extra "Symbol" would shift every block after it.
-function _sourceBlockFor(source, restBlocks, b) {
-  const pos = restBlocks[b].pos;
-  const k   = restBlocks.slice(0, b).filter(x => x.pos === pos).length;
-  return source.filter(x => x.pos === pos)[k];
-}
-
 const _DM_TAG = { noun: 'n', verb: 'v', adjective: 'adj', adverb: 'adv' };
 const _dmFreq = d => parseFloat((d.tags ?? []).find(t => t.startsWith('f:'))?.slice(2) ?? '0');
 // A candidate's main part of speech, not any it can take: "went" can be a
@@ -844,41 +919,30 @@ async function _lookupWiktionary(word) {
   // start of a sentence: "School" should find school, not a proper noun.
   const lower  = word.toLowerCase();
   const titles = lower === word ? [word] : [lower, word];
-  let title, blocks;
+  // The Datamuse list only depends on the title, so it rides the same round trip.
+  _datamuse(`ml=${encodeURIComponent(lower)}`, 100).catch(() => {});
+  let title, source;
   for (const t of titles) {
-    try { blocks = await _wiktDefinitions(t); title = t; break; }
-    catch (err) { if (!err.noEntry || t === titles[titles.length - 1]) throw err; }
+    try {
+      source = await _wiktSource(t);
+      if (!source.some(b => WORD_POS.has(b.pos) && b.senses.length)) throw noEntry();
+      title = t; break;
+    } catch (err) { if (!err.noEntry || t === titles[titles.length - 1]) throw err; }
   }
-  const source = await _wiktSource(title).catch(() => []);
 
-  // The first real sense of each part of speech.  The page source is the
-  // backbone -- it knows sense order, synonym lines and pointers -- and REST
-  // supplies the rendered text and example for whichever sense that is.
+  // The first real sense of each part of speech, in page order.
   const picks = [];
-  blocks.forEach((blk, b) => {
-    if (!WORD_POS.has(blk.pos) || picks.some(p => p.pos === blk.pos)) return;
-    const src = _sourceBlockFor(source, blocks, b);
-    for (const sense of src?.senses ?? []) {
+  for (const blk of source) {
+    if (!WORD_POS.has(blk.pos) || picks.some(p => p.pos === blk.pos)) continue;
+    for (const sense of blk.senses) {
       if (sense.formOf?.caseOnly) continue;   // "letter-case form of Grad": a different word
       if (!/[a-z]/i.test(sense.plain)) sense.plain = '';   // "{{misspelling of|en|the}}." -> "."
       if (!sense.formOf && !sense.plain) continue;
-      // The first real sense is the one shown, even if its text can't be
-      // matched to a REST entry exactly -- skipping on would show a minor
-      // sense ("Very soon." for quickly).  Unmatched, REST's first entry is
-      // the likeliest rendering.
-      // A pointer that won't be followed (a misspelling) shows REST's
-      // rendering of it: "Deliberate misspelling of the, for humorous effect."
-      const followed = sense.formOf && sense.formOf.type !== 'misspelling';
-      const def = _matchRest(blk.defs, sense.plain)
-               ?? (followed ? null : blk.defs.find(d => d.text))
-               ?? { text: sense.plain, example: '' };
-      picks.push({ pos: blk.pos, def, formOf: sense.formOf, syns: sense.syns, nSenses: src.senses.length });
-      return;
+      picks.push({ pos: blk.pos, def: { text: sense.plain, example: sense.example },
+                   formOf: sense.formOf, syns: sense.syns, nSenses: blk.senses.length });
+      break;
     }
-    // No usable source: fall back to REST's first non-pointer sense.
-    const def = blk.defs.find(d => d.text && !/^alternative (letter-case )?form of/i.test(d.text));
-    if (def) picks.push({ pos: blk.pos, def, formOf: null, syns: [], nSenses: 0 });
-  });
+  }
   // "ran" is mostly "past of run"; that reading goes ahead of the rare noun.
   picks.sort((x, y) => (y.formOf?.type === 'inflection') - (x.formOf?.type === 'inflection'));
   // For a word that is mainly an inflection, its own Datamuse list is made of
@@ -894,13 +958,11 @@ async function _lookupWiktionary(word) {
     if (f && f.type !== 'misspelling') {
       // Follow the pointer and show the real entry's first sense.
       try {
-        const [tBlocks, tSource] = await Promise.all([
-          _wiktDefinitions(f.target), _wiktSource(f.target).catch(() => []),
-        ]);
-        const tSrc   = tSource.find(x => x.pos === pick.pos);
-        const tSense = tSrc?.senses.find(s => !s.formOf);
-        const tb     = tBlocks.find(x => x.pos === pick.pos) ?? tBlocks.find(x => WORD_POS.has(x.pos));
-        const td     = (tSense && tb && _matchRest(tb.defs, tSense.plain)) || tb?.defs.find(d => d.text);
+        _datamuse(`ml=${encodeURIComponent(f.target)}`, 100).catch(() => {});   // same round trip
+        const tSource = await _wiktSource(f.target);
+        const tSrc    = tSource.find(x => x.pos === pick.pos) ?? tSource.find(x => WORD_POS.has(x.pos));
+        const tSense  = tSrc?.senses.find(s => !s.formOf && /[a-z]/i.test(s.plain));
+        const td      = tSense && { text: tSense.plain, example: tSense.example };
         if (td) {
           example = example || td.example;
           if (f.type === 'short') {
@@ -921,6 +983,7 @@ async function _lookupWiktionary(word) {
       } catch { /* keep what the page itself said */ }
     }
     if (!text && f) text = `${f.type === 'misspelling' ? 'Misspelling' : 'Form'} of “${f.target}”.`;
+    if (text && !/[.!?)]$/.test(text)) text += '.';
     if (!text) return null;
 
     // Many senses means the word-level lists blur them; "run" has dozens.
@@ -1013,36 +1076,28 @@ async function _showPopupInner(word, pos, origin) {
   if (onBody) ensureLiquidGlassStylesheet();
   const container = onBody ? document.body : shadowRoot;
 
+  const entry = lookupCached(word);
+  if (entry.settled) {
+    // Prefetched while the pointer travelled to the pill: no spinner at all.
+    popupEl = buildPopup(_cardData(word, entry), rect, theme, origin);
+    container.appendChild(popupEl);
+    return;
+  }
+
   popupEl = buildPopup({ state: 'loading', word }, rect, theme, origin);
   container.appendChild(popupEl);
-
-  let data;
-  try {
-    data = { state: 'loaded', word, meanings: await lookupWord(word) };
-  } catch (err) {
-    // noEntry means both sources answered and neither knows the word.  Any
-    // other error is the services failing -- saying "No definition found"
-    // then would tell the user their word doesn't exist.
-    if (!err.noEntry) console.warn('[Word Helper] all dictionary sources failed:', err.name, err.message);
-    data = {
-      state: 'loaded', word,
-      meanings: [{
-        partOfSpeech: '', example: '', synonyms: [],
-        definition: err.noEntry
-          ? 'No definition found.'
-          : "Couldn't reach the dictionary service. Try again in a moment.",
-      }],
-    };
-  }
+  // The card is on screen, so nothing is "pending" any more: the network wait
+  // must not block pills elsewhere (showPill bails while this flag is set).
+  _popupPending = false;
+  const card = popupEl;
+  await entry.promise.catch(() => {});
+  // Closed, or replaced by another word's card, while loading: this result
+  // belongs to neither, so drop it rather than write "A" into "B"'s card.
+  if (popupEl !== card) return;
 
   // Update in-place so the popup never disappears — no DOM remove/re-add, no
   // animation replay, no blank frame between loading state and loaded state.
-  if (popupEl) {
-    _updatePopupBody(popupEl, data);
-  } else {
-    popupEl = buildPopup(data, rect, theme, origin);
-    container.appendChild(popupEl);
-  }
+  _updatePopupBody(card, _cardData(word, entry));
 }
 
 // Swaps the wh-body content of an existing popup without touching the glass

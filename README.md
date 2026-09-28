@@ -30,7 +30,8 @@ and part of speech — plus one-click synonyms that replace the word in place.
 - **One-click synonym replacement.** Click a synonym and it replaces the selected word directly in the document, matching the original capitalisation and preserving a trailing space.
 - **Never touches your clipboard.** Reading the selection out of Google Docs requires provoking a copy, so the extension intercepts it before anything reaches the OS clipboard. Details below.
 - **Four popup themes**, chosen from the toolbar button.
-- **Resilient lookups.** If the primary dictionary is slow or down, it falls back to Wiktionary within 3 seconds and skips the primary for five minutes, so only the first lookup of an outage waits.
+- **Effectively instant.** The lookup starts the moment the pill appears, not when it's clicked — reaching for the pill covers the network — so the card usually opens with its content already there. Results are cached on the device, so a word seen before is instant, even after a reload.
+- **Resilient lookups.** Definitions come from Wiktionary's page source in a single request. If Wiktionary can't be reached, the Free Dictionary API and Datamuse race as fallbacks, so an outage costs one short timeout rather than a hang.
 - **Synonyms for the sense on screen.** Synonyms come from that exact sense's entry on Wiktionary where editors have written them, and are topped up from Datamuse only where its results are trustworthy for that part of speech. Inflected words get inflected synonyms: *ran* → *sprinted, raced*; *schools* → *academies, colleges*; *happier* → *gladder, merrier*.
 - **Keyboard and context-menu access** — `Alt+Shift+D`, or right-click → *Look up "…"*.
 
@@ -142,7 +143,7 @@ a fade.
 
 | Permission | Why |
 |---|---|
-| `storage` | Remember the selected theme |
+| `storage` | Remember the selected theme, and cache recent lookups on this device |
 | `contextMenus` | The right-click *Look up "…"* entry |
 
 That's the whole list — no host permissions. The content scripts run only on
@@ -150,10 +151,11 @@ That's the whole list — no host permissions. The content scripts run only on
 site access Chrome shows at install is Google Docs.
 
 No analytics, no tracking, no account. The only network requests are for the
-word you looked up — to `api.dictionaryapi.dev`, and as fallbacks to
-`en.wiktionary.org` and `api.datamuse.com`. None needs a permission: in Manifest
-V3 a content script's requests follow the page's CORS rules, and all three
-allow Google Docs.
+word you looked up — to `en.wiktionary.org` and `api.datamuse.com`, and to
+`api.dictionaryapi.dev` only if Wiktionary can't be reached. None needs a
+permission: in Manifest V3 a content script's requests follow the page's CORS
+rules, and all three allow Google Docs. Recent lookups are cached in the
+extension's local storage on your device and never leave it.
 
 ---
 
