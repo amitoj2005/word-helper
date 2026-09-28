@@ -127,16 +127,23 @@ bc.addEventListener('message', async (e) => {
 // Alt+Shift+D and the right-click menu stay "direct": they skip the pill,
 // because the user has already expressed the intent explicitly.
 const PROBE_DELAY_MS = 180;   // debounce after a selection gesture settles
-const DRAG_SLOP_PX   = 3;     // below this, a mouseup is a caret click
+const DRAG_SLOP_PX   = 3;     // below this, a pointerup is a caret click
 
 let _probeTimer = null;
 let _downX = 0, _downY = 0;
 
-window.addEventListener('mouseup',    onMouseUp,   { capture: true });
-document.addEventListener('keydown',  onKeyDown,   { capture: true });
-document.addEventListener('keyup',    onKeyUp,     { capture: true });
-document.addEventListener('mousedown',onMouseDown, { capture: true });
-window.addEventListener('scroll',     closePill,   { capture: true, passive: true });
+// Pointer events, not mouse events.  When a page cancels pointerdown, the
+// browser stops sending that press's compatibility mousedown/mouseup at all --
+// and Google Docs' editor manages its own selection, so the mouse events these
+// triggers used to rely on never arrived in edit mode.  pointerdown/up always
+// fire.  They carry no click count, though, so double/triple-click selection is
+// caught from 'click', which also still fires after a cancelled pointerdown.
+window.addEventListener('pointerdown', onPointerDown, { capture: true });
+window.addEventListener('pointerup',   onPointerUp,   { capture: true });
+window.addEventListener('click',       onClick,       { capture: true });
+document.addEventListener('keydown',   onKeyDown,     { capture: true });
+document.addEventListener('keyup',     onKeyUp,       { capture: true });
+window.addEventListener('scroll',      closePill,     { capture: true, passive: true });
 console.log('[Word Helper] listeners ready');
 
 // True when the event originated inside our own pill or card.
@@ -152,12 +159,18 @@ function scheduleProbe() {
   _probeTimer = setTimeout(() => triggerLookup(lastMouse, false), PROBE_DELAY_MS);
 }
 
-function onMouseUp(e) {
-  if (inOurUI(e)) return;
-  // A plain caret click selects nothing, so skip the (execCommand-based) probe
-  // unless the pointer dragged or this was a double/triple click.
-  const moved = Math.hypot(e.clientX - _downX, e.clientY - _downY) >= DRAG_SLOP_PX;
-  if (!moved && e.detail < 2) return;
+// A plain caret click selects nothing, so the (execCommand-based) probe only
+// runs after a drag or a multi-click.  Both paths can fire for one gesture;
+// scheduleProbe's debounce collapses them into a single lookup.
+function onPointerUp(e) {
+  if (!e.isPrimary || e.button !== 0 || inOurUI(e)) return;
+  if (Math.hypot(e.clientX - _downX, e.clientY - _downY) < DRAG_SLOP_PX) return;
+  lastMouse = { x: e.clientX, y: e.clientY };
+  scheduleProbe();
+}
+
+function onClick(e) {
+  if (e.detail < 2 || inOurUI(e)) return;
   lastMouse = { x: e.clientX, y: e.clientY };
   scheduleProbe();
 }
@@ -182,7 +195,8 @@ function onKeyUp(e) {
       (e.ctrlKey && e.key.toLowerCase() === 'a')) scheduleProbe();
 }
 
-function onMouseDown(e) {
+function onPointerDown(e) {
+  if (!e.isPrimary) return;
   _downX = e.clientX; _downY = e.clientY;
   if (inOurUI(e)) return;
   clearTimeout(_probeTimer);
@@ -374,8 +388,9 @@ function showPill(word, pos) {
   // Keep the Google Docs selection alive -- the synonym paste path replaces it,
   // and a focus change here would drop it (same reason the synonym buttons
   // preventDefault on mousedown).
-  el.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
-  el.addEventListener('click',     e => { e.preventDefault(); e.stopPropagation(); open(); });
+  el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+  el.addEventListener('mousedown',   e => { e.preventDefault(); e.stopPropagation(); });
+  el.addEventListener('click',       e => { e.preventDefault(); e.stopPropagation(); open(); });
   el.addEventListener('mouseenter', () => {
     _pillHoverTimer = setTimeout(open, PILL_HOVER_MS);
   });
