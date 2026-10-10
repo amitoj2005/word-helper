@@ -16,3 +16,7 @@ icon.jpg
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Python bytecode from assets/make_icon.py
+__pycache__/
+*.pyc
