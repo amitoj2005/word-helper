@@ -40,27 +40,39 @@
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* Line heights leave the page a fraction of a pixel taller than the
+       height Chrome sizes the popup to (500.16 vs 500), which drew both
+       scrollbars.  Hide scrollbars without disabling scrolling, so content
+       past Chrome's 600px popup limit could still be wheeled to. */
+    html { scrollbar-width: none; }
+
     /* Chrome draws the popup window itself, so its frame can't be reshaped.
        The rounded corners come from an inset frosted panel over a soft
        backdrop -- the colour blobs give the frost something to blur. */
+    /* Everything decorative is a background layer: Chrome sizes the popup to
+       its content's full extent, and blobs positioned past the edges (even
+       with overflow:hidden on body, which applies to the window, not the
+       body) made the popup 30px wider and 60px taller than the panel. */
     body {
       width: 328px;
       padding: 10px;
       font: 13px/1.45 -apple-system, 'Segoe UI', 'Google Sans', Roboto, sans-serif;
       color: var(--ink);
       background:
+        radial-gradient(circle at 100% 0%,   rgba(165, 180, 252, 0.85) 0, rgba(165, 180, 252, 0) 34%),
+        radial-gradient(circle at 0% 100%,   rgba(249, 168, 212, 0.65) 0, rgba(249, 168, 212, 0) 38%),
         radial-gradient(circle at 12% 8%,  #c7d2fe 0, transparent 42%),
         radial-gradient(circle at 92% 18%, #fbcfe8 0, transparent 38%),
         radial-gradient(circle at 78% 92%, #bae6fd 0, transparent 44%),
         radial-gradient(circle at 8% 88%,  #ddd6fe 0, transparent 40%),
         #eef1fb;
       -webkit-font-smoothing: antialiased;
-      position: relative;
-      overflow: hidden;
     }
     @media (prefers-color-scheme: dark) {
       body {
         background:
+          radial-gradient(circle at 100% 0%, rgba(99, 102, 241, 0.55) 0, rgba(99, 102, 241, 0) 34%),
+          radial-gradient(circle at 0% 100%, rgba(219, 39, 119, 0.40) 0, rgba(219, 39, 119, 0) 38%),
           radial-gradient(circle at 12% 8%,  #3730a3 0, transparent 45%),
           radial-gradient(circle at 92% 18%, #831843 0, transparent 40%),
           radial-gradient(circle at 78% 92%, #0c4a6e 0, transparent 46%),
@@ -68,17 +80,6 @@
           #0f1020;
       }
     }
-    /* Two loose blobs that sit partly behind the panel's edge. */
-    body::before, body::after {
-      content: '';
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(2px);
-      z-index: 0;
-    }
-    body::before { width: 120px; height: 120px; top: -38px; right: -30px; background: #a5b4fc; opacity: .75; }
-    body::after  { width: 150px; height: 150px; bottom: -60px; left: -44px; background: #f9a8d4; opacity: .55; }
-
     .panel {
       position: relative;
       z-index: 1;
