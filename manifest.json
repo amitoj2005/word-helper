@@ -2,6 +2,8 @@
   "name": "Word Helper",
   "version": "1.0",
   "description": "Select a word in Google Docs to see its definition and swap it for a synonym.",
+  "homepage_url": "https://github.com/amitoj2005/word-helper",
+  "minimum_chrome_version": "113",
   "manifest_version": 3,
   "icons": {
     "16": "icon16.png",

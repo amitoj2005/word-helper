@@ -105,6 +105,11 @@
   height: 100%;
   box-sizing: border-box;
   overflow-y: auto;
+  /* A word with several senses and a long synonym list outgrows the card.
+     It scrolls, but with a thin, translucent bar instead of Chrome's
+     default grey one, which looked bolted onto the glass. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(30, 40, 80, 0.28) transparent;
   /* Subtle white halo behind text for legibility over the blurred background */
   text-shadow: 0 1px 4px rgba(255, 255, 255, 0.75);
 }
@@ -414,7 +419,7 @@
 /* Kill caustic rim glows */
 .wh-theme-dictionary::after { display: none; }
 
-.wh-theme-dictionary .wh-body { text-shadow: none; }
+.wh-theme-dictionary .wh-body { text-shadow: none; scrollbar-color: rgba(120, 90, 40, 0.40) transparent; }
 
 .wh-theme-dictionary .wh-word {
   font-family: Georgia, 'Times New Roman', serif;

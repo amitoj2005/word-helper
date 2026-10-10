@@ -20,3 +20,6 @@ desktop.ini
 # Python bytecode from assets/make_icon.py
 __pycache__/
 *.pyc
+
+# Store packages from scripts/build.py
+dist/

@@ -1,5 +1,11 @@
 // Word Helper Content Script
-console.log('[Word Helper] loaded in', window === window.top ? 'main frame' : 'iframe', '|', location.href.slice(0, 60));
+
+// Tracing for development.  Off in releases: several of these lines print the
+// selected word, and the page's console is no place for that by default.
+const DEBUG = false;
+const log = DEBUG ? (...args) => console.log(...args) : () => {};
+
+log('[Word Helper] loaded in', window === window.top ? 'main frame' : 'iframe', '|', location.href.slice(0, 60));
 
 let popupEl         = null;
 let pillEl          = null;
@@ -74,7 +80,7 @@ bc.addEventListener('message', async (e) => {
     if (!rawText.trim()) rawText = window.getSelection()?.toString() ?? '';
 
     const trimmed = rawText.trim();
-    console.log('[Word Helper] TRIGGER_COPY resolved:', JSON.stringify(rawText));
+    log('[Word Helper] TRIGGER_COPY resolved:', JSON.stringify(rawText));
 
     if (trimmed && /^[a-zA-Z'-]{1,40}$/.test(trimmed)) {
       _iHaveSelection = true;
@@ -85,7 +91,7 @@ bc.addEventListener('message', async (e) => {
       _savedSuffix = (rawSel || rawText) !== (rawSel || rawText).trimEnd() ? ' ' : '';
       _savedRange  = selNow?.rangeCount > 0 ? selNow.getRangeAt(0).cloneRange() : null;
       window.name  = 'wh-editor-active';
-      console.log('[Word Helper] TRIGGER_COPY word:', trimmed, '| suffix:', JSON.stringify(_savedSuffix));
+      log('[Word Helper] TRIGGER_COPY word:', trimmed, '| suffix:', JSON.stringify(_savedSuffix));
       bc.postMessage({ type: 'FOUND', word: trimmed, pos: e.data.pos, direct: e.data.direct });
     }
   }
@@ -93,7 +99,7 @@ bc.addEventListener('message', async (e) => {
   if (e.data.type === 'CLOSE' && window === window.top) { closePopup(); closePill(); }
 
   if (e.data.type === 'FOUND' && window === window.top && !popupEl) {
-    console.log('[Word Helper] FOUND via broadcast:', e.data.word, '| direct:', !!e.data.direct);
+    log('[Word Helper] FOUND via broadcast:', e.data.word, '| direct:', !!e.data.direct);
     if (e.data.direct) showPopup(e.data.word, e.data.pos);
     else               showPill(e.data.word, e.data.pos);
   }
@@ -108,7 +114,7 @@ bc.addEventListener('message', async (e) => {
     const currentSel = window.getSelection()?.toString() ?? '';
     const suffix     = currentSel.endsWith(' ') ? ' ' : _savedSuffix;
     const syn        = matchCase(currentSel.trim(), e.data.syn);
-    console.log('[Word Helper] pre-paste sel:', JSON.stringify(currentSel), '| suffix:', JSON.stringify(suffix), '| syn:', syn);
+    log('[Word Helper] pre-paste sel:', JSON.stringify(currentSel), '| suffix:', JSON.stringify(suffix), '| syn:', syn);
 
     const dt = new DataTransfer();
     dt.setData('text/plain', syn);
@@ -127,7 +133,7 @@ bc.addEventListener('message', async (e) => {
         }));
       }
     }
-    console.log('[Word Helper] inserted:', JSON.stringify(syn + suffix));
+    log('[Word Helper] inserted:', JSON.stringify(syn + suffix));
   }
 });
 
@@ -156,7 +162,7 @@ window.addEventListener('click',       onClick,       { capture: true });
 document.addEventListener('keydown',   onKeyDown,     { capture: true });
 document.addEventListener('keyup',     onKeyUp,       { capture: true });
 window.addEventListener('scroll',      closePill,     { capture: true, passive: true });
-console.log('[Word Helper] listeners ready');
+log('[Word Helper] listeners ready');
 
 // True when the event originated inside our own pill or card.
 function inOurUI(e) {
@@ -198,7 +204,7 @@ function onKeyDown(e) {
   if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[Word Helper] Alt+Shift+D pressed');
+    log('[Word Helper] Alt+Shift+D pressed');
     closePill();
     triggerLookup(lastMouse, true);
     return;
@@ -229,13 +235,13 @@ async function triggerLookup(pos, direct = true) {
   if (window === window.top) {
     const rawSel  = window.getSelection()?.toString() ?? '';
     const trimmed = rawSel.trim();
-    console.log('[Word Helper] triggerLookup getSelection:', JSON.stringify(rawSel), '| top: true');
+    log('[Word Helper] triggerLookup getSelection:', JSON.stringify(rawSel), '| top: true');
     if (isWord(trimmed)) {
       if (direct) showPopup(trimmed, pos);
       else        showPill(trimmed, pos);
       return;
     }
-    console.log('[Word Helper] no word in this frame, broadcasting TRIGGER_COPY');
+    log('[Word Helper] no word in this frame, broadcasting TRIGGER_COPY');
     bc.postMessage({ type: 'TRIGGER_COPY', pos, direct });
     return;
   }
@@ -253,11 +259,11 @@ async function triggerLookup(pos, direct = true) {
     _savedSuffix = (rawSel || raw) !== (rawSel || raw).trimEnd() ? ' ' : '';
     _savedRange  = selNow?.rangeCount > 0 ? selNow.getRangeAt(0).cloneRange() : null;
     window.name  = 'wh-editor-active';
-    console.log('[Word Helper] found in frame:', t, '| suffix:', JSON.stringify(_savedSuffix));
+    log('[Word Helper] found in frame:', t, '| suffix:', JSON.stringify(_savedSuffix));
     bc.postMessage({ type: 'FOUND', word: t, pos, direct });
     return;
   }
-  console.log('[Word Helper] no word in this frame, broadcasting TRIGGER_COPY');
+  log('[Word Helper] no word in this frame, broadcasting TRIGGER_COPY');
   bc.postMessage({ type: 'TRIGGER_COPY', pos, direct });
 }
 
@@ -291,7 +297,7 @@ function localCopyRead() {
       // Text was stored in the DOM attribute by the main-world patch.
       const text = document.documentElement.getAttribute('data-wh-copy-text') ?? '';
       cleanup();
-      console.log('[Word Helper] intercepted copy text:', JSON.stringify(text));
+      log('[Word Helper] intercepted copy text:', JSON.stringify(text));
       resolve(text || null);
     };
 
@@ -304,7 +310,7 @@ function localCopyRead() {
     document.addEventListener('copy', readText,    { capture: false, once: true });
 
     const ok = document.execCommand('copy');
-    console.log('[Word Helper] execCommand(copy):', ok);
+    log('[Word Helper] execCommand(copy):', ok);
 
     if (!ok) {
       cleanup();
@@ -411,7 +417,7 @@ function showPill(word, pos) {
   shadowRoot.appendChild(el);
   pillEl = el;
   lookupCached(word);                          // prefetch: see lookupCached
-  console.log('[Word Helper] pill shown for', word);
+  log('[Word Helper] pill shown for', word);
 }
 
 // Close with a short shrink-and-fade rather than vanishing.  The element is
