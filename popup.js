@@ -8,13 +8,20 @@ chrome.storage.local.get('theme', ({ theme = 'glass' }) => {
     theme = LEGACY_THEMES[theme];
     chrome.storage.local.set({ theme });
   }
-  document.querySelector(`[data-theme="${theme}"]`)?.classList.add('active');
+  select(document.querySelector(`[data-theme="${theme}"]`));
 });
+
+// Highlight one card; aria-pressed keeps the choice audible to screen readers.
+function select(card) {
+  for (const c of cards) {
+    c.classList.toggle('active', c === card);
+    c.setAttribute('aria-pressed', String(c === card));
+  }
+}
 
 for (const card of cards) {
   card.addEventListener('click', () => {
-    cards.forEach(c => c.classList.remove('active'));
-    card.classList.add('active');
+    select(card);
     chrome.storage.local.set({ theme: card.dataset.theme });
   });
 }

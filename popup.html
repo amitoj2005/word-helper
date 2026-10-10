@@ -3,245 +3,316 @@
 <head>
   <meta charset="utf-8">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, 'Google Sans', Roboto, sans-serif;
-      width: 276px;
-      padding: 14px;
-      color: #3c4043;
-      font-size: 13px;
-      line-height: 1.5;
-      background: #fff;
+    :root {
+      --ink:        #1b1d29;
+      --ink-soft:   #5b6075;
+      --ink-faint:  #8a8fa3;
+      --panel:      rgba(255, 255, 255, 0.58);
+      --panel-edge: rgba(255, 255, 255, 0.75);
+      --card:       rgba(255, 255, 255, 0.55);
+      --card-hover: rgba(255, 255, 255, 0.80);
+      --card-edge:  rgba(255, 255, 255, 0.80);
+      --accent:     #4f46e5;
+      --accent-ink: #ffffff;
+      --shadow:     rgba(30, 41, 59, 0.12);
+      --page:       #ffffff;
+      --page-line:  #d6d9e3;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink:        #eceef6;
+        --ink-soft:   #a9aec2;
+        --ink-faint:  #7d8296;
+        --panel:      rgba(28, 30, 44, 0.62);
+        --panel-edge: rgba(255, 255, 255, 0.10);
+        --card:       rgba(255, 255, 255, 0.05);
+        --card-hover: rgba(255, 255, 255, 0.10);
+        --card-edge:  rgba(255, 255, 255, 0.09);
+        --accent:     #8b85ff;
+        --accent-ink: #14121f;
+        --shadow:     rgba(0, 0, 0, 0.45);
+        --page:       #2a2d3c;
+        --page-line:  #444a5e;
+        color-scheme: dark;
+      }
     }
 
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Chrome draws the popup window itself, so its frame can't be reshaped.
+       The rounded corners come from an inset frosted panel over a soft
+       backdrop -- the colour blobs give the frost something to blur. */
+    body {
+      width: 328px;
+      padding: 10px;
+      font: 13px/1.45 -apple-system, 'Segoe UI', 'Google Sans', Roboto, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 8%,  #c7d2fe 0, transparent 42%),
+        radial-gradient(circle at 92% 18%, #fbcfe8 0, transparent 38%),
+        radial-gradient(circle at 78% 92%, #bae6fd 0, transparent 44%),
+        radial-gradient(circle at 8% 88%,  #ddd6fe 0, transparent 40%),
+        #eef1fb;
+      -webkit-font-smoothing: antialiased;
+      position: relative;
+      overflow: hidden;
     }
+    @media (prefers-color-scheme: dark) {
+      body {
+        background:
+          radial-gradient(circle at 12% 8%,  #3730a3 0, transparent 45%),
+          radial-gradient(circle at 92% 18%, #831843 0, transparent 40%),
+          radial-gradient(circle at 78% 92%, #0c4a6e 0, transparent 46%),
+          radial-gradient(circle at 8% 88%,  #4c1d95 0, transparent 42%),
+          #0f1020;
+      }
+    }
+    /* Two loose blobs that sit partly behind the panel's edge. */
+    body::before, body::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(2px);
+      z-index: 0;
+    }
+    body::before { width: 120px; height: 120px; top: -38px; right: -30px; background: #a5b4fc; opacity: .75; }
+    body::after  { width: 150px; height: 150px; bottom: -60px; left: -44px; background: #f9a8d4; opacity: .55; }
+
+    .panel {
+      position: relative;
+      z-index: 1;
+      padding: 14px 14px 12px;
+      border-radius: 18px;
+      background: var(--panel);
+      border: 1px solid var(--panel-edge);
+      -webkit-backdrop-filter: blur(22px) saturate(1.5);
+      backdrop-filter: blur(22px) saturate(1.5);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        0 10px 30px var(--shadow);
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    .header { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
     .logo {
-      /* The artwork carries its own rounded tile and transparent corners, so
-         no border-radius or box-shadow here -- either would paint into them. */
-      width: 30px; height: 30px;
+      width: 40px; height: 40px;
       flex-shrink: 0;
       display: block;
+      filter: drop-shadow(0 3px 6px rgba(30, 41, 59, 0.22));
     }
-    .title    { font-size: 14px; font-weight: 600; color: #202124; }
-    .subtitle { font-size: 11px; color: #5f6368; }
+    .title    { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+    .subtitle { font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .pill-glyph {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #fff; color: #2f7de1;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22);
+      vertical-align: middle;
+    }
 
     .section-label {
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: 0.7px;
-      text-transform: uppercase;
-      color: #5f6368;
-      margin-bottom: 8px;
+      font-size: 10.5px; font-weight: 650;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-faint);
+      margin: 0 2px 8px;
     }
 
-    /* Two equal cards side by side */
-    .style-grid { display: flex; gap: 8px; margin-bottom: 8px; }
+    /* ── Theme rows ─────────────────────────────────────────────────────── */
+    .themes { display: flex; flex-direction: column; gap: 8px; }
 
     .style-card {
       all: unset;
+      box-sizing: border-box;
+      display: grid;
+      grid-template-columns: 96px 1fr auto;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 7px 12px 7px 7px;
+      border-radius: 14px;
+      background: var(--card);
+      border: 1px solid var(--card-edge);
       cursor: pointer;
-      flex: 1;
-      border: 2px solid #e0e0e0;
+      transition: background-color .15s ease, box-shadow .15s ease, transform .15s ease;
+    }
+    .style-card:hover { background: var(--card-hover); transform: translateY(-1px); }
+    .style-card:active { transform: translateY(0); }
+    .style-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .style-card.active {
+      background: var(--card-hover);
+      box-shadow: 0 0 0 2px var(--accent), 0 6px 16px var(--shadow);
+    }
+
+    .card-name { display: block; font-size: 13.5px; font-weight: 600; }
+    .card-hint { display: block; font-size: 11.5px; color: var(--ink-soft); margin-top: 1px;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .style-card > span:nth-child(2) { min-width: 0; }
+
+    /* Radio-style indicator */
+    .check {
+      width: 18px; height: 18px; border-radius: 50%;
+      border: 1.5px solid var(--ink-faint);
+      display: grid; place-items: center;
+      transition: background-color .15s ease, border-color .15s ease;
+    }
+    .check svg { opacity: 0; transform: scale(.6); transition: opacity .15s ease, transform .15s cubic-bezier(.34,1.56,.64,1); }
+    .style-card.active .check { background: var(--accent); border-color: var(--accent); }
+    .style-card.active .check svg { opacity: 1; transform: scale(1); }
+
+    /* ── Previews: a mini page with the card's look on top ──────────────── */
+    .preview {
+      position: relative;
+      width: 96px; height: 62px;
       border-radius: 10px;
       overflow: hidden;
-      transition: border-color 0.15s, box-shadow 0.15s;
-      display: flex;
-      flex-direction: column;
-      width: 100%;
+      background: var(--page);
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
     }
-    .style-card + .style-card { margin-top: 8px; }
-    /* ...but not between the two cards sharing the top row, where it pushed
-       the second one 8px below the first. */
-    .style-grid > .style-card + .style-card { margin-top: 0; }
-    .style-card:hover  { border-color: #a8c7fa; box-shadow: 0 2px 8px rgba(66,133,244,0.14); }
-    .style-card.active { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
-
-    /* ── Preview area (shared) ── */
-    .preview { height: 76px; padding: 9px 10px; flex-shrink: 0; }
-    .pw { display: block; font-size: 11.5px; font-weight: 700; }
-    .pp { display: block; font-size: 9px; font-style: italic; margin-bottom: 3px; }
-    .pd { font-size: 9px; line-height: 1.35; margin-bottom: 5px; }
-    .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; margin-right: 3px; }
-
-    /* ── Modern Glass preview ── */
-    .preview-glass {
-      background: linear-gradient(158deg, rgba(218,230,255,0.97) 0%, rgba(255,255,255,0.94) 55%, rgba(218,232,255,0.97) 100%);
-    }
-    .preview-glass .pw { font-family: -apple-system, sans-serif; color: rgb(18,28,105); }
-    .preview-glass .pp { color: rgba(60,80,160,0.65); font-family: -apple-system, sans-serif; }
-    .preview-glass .pd { color: rgba(12,18,55,0.88); font-family: -apple-system, sans-serif; }
-    .preview-glass .pt {
-      font-family: -apple-system, sans-serif;
-      background: rgba(255,255,255,0.55);
-      border: 1px solid rgba(180,200,255,0.65);
-      border-radius: 100px;
-      color: rgba(18,36,120,0.88);
-    }
-
-    /* ── Old Dictionary preview ── */
-    .preview-dictionary { background: #f4efe0; }
-    .preview-dictionary .pw { font-family: Georgia, serif; color: #1c0f00; font-variant: small-caps; }
-    .preview-dictionary .pp { font-family: Georgia, serif; color: #7a5c2e; }
-    .preview-dictionary .pd { font-family: Georgia, serif; color: #2c1a0e; }
-    .preview-dictionary .pt {
-      font-family: Georgia, serif;
-      background: rgba(155,124,62,0.10);
-      border: 1px solid #c4a470;
-      border-radius: 2px;
-      color: #2c1a0e;
-    }
-
-    /* ── Liquid Glass preview ── */
-    .preview-liquid {
-      background: linear-gradient(135deg, #4facfe 0%, #43e97b 38%, #a18cd1 68%, #fbc2eb 100%);
-      padding: 0; overflow: hidden; position: relative;
-    }
-    .lq-glass {
-      position: absolute; inset: 0; padding: 9px 10px;
-      background: rgba(255,255,255,0.22);
-      box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.85), inset 1px 0 0 rgba(255,255,255,0.5);
-    }
-    .preview-liquid .pw { font-family: -apple-system,sans-serif; font-size: 11.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.3); display: block; }
-    .preview-liquid .pp { font-size: 9px; font-style: italic; color: rgba(255,255,255,0.85); display: block; margin-bottom: 3px; }
-    .preview-liquid .pd { font-size: 9px; color: rgba(255,255,255,0.92); margin-bottom: 5px; line-height: 1.35; }
-    .preview-liquid .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.28); border: 1px solid rgba(255,255,255,0.55); border-radius: 100px; color: #fff; margin-right: 3px; }
-
-    /* ── Frosted Glass preview ── */
-    .preview-frosted {
-      background: linear-gradient(135deg, #c8dcff 0%, #e0eeff 45%, #d8e8ff 100%);
-      padding: 0; overflow: hidden; position: relative;
-    }
-    .fr-glass {
-      position: absolute; inset: 0; padding: 9px 10px;
-      background: rgba(255, 255, 255, 0.40);
-      border-top: 1px solid rgba(255, 255, 255, 0.90);
-    }
-    .preview-frosted .pw { font-family: -apple-system,sans-serif; font-size: 11.5px; font-weight: 700; color: rgb(18,28,105); display: block; }
-    .preview-frosted .pp { font-size: 9px; font-style: italic; color: rgba(40,60,160,0.70); display: block; margin-bottom: 3px; }
-    .preview-frosted .pd { font-size: 9px; color: rgba(12,18,55,0.85); margin-bottom: 5px; line-height: 1.35; }
-    .preview-frosted .pt { display: inline-block; padding: 1px 7px; font-size: 8.5px; background: rgba(255,255,255,0.55); border: 1px solid rgba(180,200,255,0.60); border-radius: 100px; color: rgba(18,36,120,0.88); margin-right: 3px; }
-
-    /* ── Card label row ── */
-    .card-label {
-      padding: 6px 9px;
-      background: #f8f9fa;
-      border-top: 1px solid #e0e0e0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-    .card-label-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .card-name { font-size: 11.5px; font-weight: 500; color: #3c4043; white-space: nowrap; }
-    .card-hint { font-size: 9.5px; color: #5f6368; white-space: nowrap; }
-
-    .check {
-      width: 14px; height: 14px;
-      border-radius: 50%;
-      background: #1a73e8;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    .check::after {
+    /* Grey "text lines" and a coloured block, so glass previews have
+       something behind them to blur. */
+    .preview::before {
       content: '';
-      display: block;
-      width: 5px; height: 3px;
-      border-left: 1.5px solid #fff;
-      border-bottom: 1.5px solid #fff;
-      transform: rotate(-45deg) translateY(-1px);
+      position: absolute; inset: 7px 8px;
+      background:
+        linear-gradient(var(--page-line), var(--page-line)) 0 0    / 92% 3px no-repeat,
+        linear-gradient(var(--page-line), var(--page-line)) 0 9px  / 70% 3px no-repeat,
+        linear-gradient(var(--page-line), var(--page-line)) 0 18px / 84% 3px no-repeat,
+        linear-gradient(#f97316, #f97316)                   55% 27px / 34% 7px no-repeat,
+        linear-gradient(var(--page-line), var(--page-line)) 0 38px / 78% 3px no-repeat,
+        linear-gradient(#3b82f6, #3b82f6)                   8% 45px / 28% 5px no-repeat;
     }
-    .style-card.active .check { display: flex; }
+    .mini {
+      position: absolute;
+      left: 14px; right: 9px; top: 10px; bottom: 9px;
+      border-radius: 7px;
+      padding: 5px 7px;
+      line-height: 1.15;
+    }
+    .mini b  { display: block; font-size: 10px; }
+    .mini i  { display: block; font-size: 7.5px; opacity: .75; margin-bottom: 3px; }
+    .mini s  { display: block; height: 3px; border-radius: 2px; text-decoration: none; margin-top: 3px; }
+    .mini s + s { width: 70%; }
+
+    .mini-glass {
+      background: linear-gradient(150deg, #f4f8ff 0%, #e2ecff 100%);
+      color: #1e3a8a;
+      box-shadow: 0 3px 8px rgba(30, 58, 138, 0.18);
+    }
+    .mini-glass s { background: #bfd0f5; }
+
+    .mini-dictionary {
+      background: #f4efe0;
+      color: #2b1a05;
+      font-family: Georgia, 'Times New Roman', serif;
+      border-radius: 3px;
+      box-shadow: 0 0 0 1px #9b7c3e, 0 3px 8px rgba(30, 10, 0, 0.22);
+    }
+    .mini-dictionary b { font-variant: small-caps; letter-spacing: .05em; }
+    .mini-dictionary s { background: #d7c9a4; }
+
+    .mini-liquid {
+      background: rgba(255, 255, 255, 0.16);
+      -webkit-backdrop-filter: blur(1.4px) saturate(1.5);
+      backdrop-filter: blur(1.4px) saturate(1.5);
+      color: #111;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.95),
+        inset 1px 0 0 rgba(255, 110, 180, 0.45),
+        inset -1px 0 0 rgba(80, 190, 255, 0.45),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+        0 3px 9px rgba(20, 60, 160, 0.20);
+    }
+    .mini-liquid s { background: rgba(0, 0, 0, 0.18); }
+
+    .mini-frosted {
+      background: rgba(255, 255, 255, 0.42);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
+      color: #1e293b;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7), 0 3px 8px rgba(30, 41, 59, 0.16);
+    }
+    .mini-frosted s { background: rgba(30, 41, 59, 0.16); }
+
+    @media (prefers-color-scheme: dark) {
+      .mini-liquid  { color: #f3f4fa; background: rgba(255, 255, 255, 0.06); }
+      .mini-liquid s { background: rgba(255, 255, 255, 0.28); }
+      .mini-frosted { color: #f3f4fa; background: rgba(255, 255, 255, 0.14);
+                      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 3px 8px rgba(0, 0, 0, 0.35); }
+      .mini-frosted s { background: rgba(255, 255, 255, 0.28); }
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    .footer {
+      margin-top: 12px; padding-top: 10px;
+      border-top: 1px solid var(--card-edge);
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      font-size: 11px; color: var(--ink-faint);
+    }
+    kbd {
+      font: 600 10px/1 -apple-system, 'Segoe UI', sans-serif;
+      padding: 2px 5px; border-radius: 5px;
+      background: var(--card-hover); border: 1px solid var(--card-edge);
+      color: var(--ink-soft);
+    }
+    .footer a { color: var(--ink-faint); text-decoration: none; }
+    .footer a:hover { color: var(--ink-soft); text-decoration: underline; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .style-card, .check, .check svg { transition: none; }
+      .style-card:hover { transform: none; }
+    }
   </style>
 </head>
 <body>
-  <div class="header">
-    <img class="logo" src="icon48.png" alt="">
-    <div>
-      <div class="title">Word Helper</div>
-      <div class="subtitle">Select a word in Google Docs, then click the ●</div>
-    </div>
-  </div>
-
-  <div class="section-label">Popup Style</div>
-
-  <!-- Row 1: two equal cards -->
-  <div class="style-grid">
-    <button class="style-card" data-theme="glass">
-      <div class="preview preview-glass">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
-      <div class="card-label">
-        <div class="card-label-text">
-          <span class="card-name">Modern Glass</span>
+  <main class="panel">
+    <header class="header">
+      <img class="logo" src="icon48.png" alt="">
+      <div>
+        <div class="title">Word Helper</div>
+        <div class="subtitle">
+          Select a word, then click
+          <span class="pill-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor"
+                 stroke-width="2.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.4 15.4 21 21"/></svg>
+          </span>
         </div>
-        <div class="check"></div>
       </div>
-    </button>
+    </header>
 
-    <button class="style-card" data-theme="dictionary">
-      <div class="preview preview-dictionary">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
-      <div class="card-label">
-        <div class="card-label-text">
-          <span class="card-name">Old Dictionary</span>
-        </div>
-        <div class="check"></div>
-      </div>
-    </button>
-  </div>
+    <div class="section-label" id="style-label">Card style</div>
 
-  <!-- Liquid Glass full-width -->
-  <button class="style-card" data-theme="liquidlive">
-    <div class="preview preview-liquid">
-      <div class="lq-glass">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
-    </div>
-    <div class="card-label">
-      <div class="card-label-text">
-        <span class="card-name">Liquid Glass</span>
-        <span class="card-hint">Refracts the page behind the card</span>
-      </div>
-      <div class="check"></div>
-    </div>
-  </button>
+    <div class="themes" role="group" aria-labelledby="style-label">
+      <button class="style-card" data-theme="glass" aria-pressed="false">
+        <span class="preview"><span class="mini mini-glass"><b>serene</b><i>adjective</i><s></s><s></s></span></span>
+        <span><span class="card-name">Modern Glass</span><span class="card-hint">Clean and bright</span></span>
+        <span class="check"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+      </button>
 
-  <!-- Frosted Glass full-width -->
-  <button class="style-card" data-theme="frosted">
-    <div class="preview preview-frosted">
-      <div class="fr-glass">
-        <span class="pw">serene</span>
-        <span class="pp">adjective</span>
-        <div class="pd">Calm and peaceful.</div>
-        <div><span class="pt">calm</span><span class="pt">tranquil</span></div>
-      </div>
+      <button class="style-card" data-theme="dictionary" aria-pressed="false">
+        <span class="preview"><span class="mini mini-dictionary"><b>serene</b><i>adjective</i><s></s><s></s></span></span>
+        <span><span class="card-name">Old Dictionary</span><span class="card-hint">Parchment and serif</span></span>
+        <span class="check"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+      </button>
+
+      <button class="style-card" data-theme="liquidlive" aria-pressed="false">
+        <span class="preview"><span class="mini mini-liquid"><b>serene</b><i>adjective</i><s></s><s></s></span></span>
+        <span><span class="card-name">Liquid Glass</span><span class="card-hint">Refracts the page</span></span>
+        <span class="check"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+      </button>
+
+      <button class="style-card" data-theme="frosted" aria-pressed="false">
+        <span class="preview"><span class="mini mini-frosted"><b>serene</b><i>adjective</i><s></s><s></s></span></span>
+        <span><span class="card-name">Frosted Glass</span><span class="card-hint">Softly blurs the page</span></span>
+        <span class="check"><svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+      </button>
     </div>
-    <div class="card-label">
-      <div class="card-label-text">
-        <span class="card-name">Frosted Glass</span>
-        <span class="card-hint">Clean backdrop blur</span>
-      </div>
-      <div class="check"></div>
-    </div>
-  </button>
+
+    <footer class="footer">
+      <span><kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>D</kbd> opens it directly</span>
+      <a href="https://en.wiktionary.org/" target="_blank" rel="noopener" title="Definitions from Wiktionary, CC BY-SA 4.0">Wiktionary</a>
+    </footer>
+  </main>
 
   <script src="popup.js"></script>
 </body>
