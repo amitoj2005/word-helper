@@ -155,7 +155,8 @@ word you looked up — to `en.wiktionary.org` and `api.datamuse.com`, and to
 `api.dictionaryapi.dev` only if Wiktionary can't be reached. None needs a
 permission: in Manifest V3 a content script's requests follow the page's CORS
 rules, and all three allow Google Docs. Recent lookups are cached in the
-extension's local storage on your device and never leave it.
+extension's local storage on your device and never leave it. Full details:
+[PRIVACY.md](PRIVACY.md).
 
 ---
 
@@ -171,6 +172,17 @@ No build step — it's plain JavaScript loaded directly by Chrome.
 | `background.js` | Service worker: the context menu |
 | `popup.html` / `popup.js` | Theme picker |
 | `assets/make_icon.py` | Regenerates `icon16/48/128.png` |
+
+### Building a release
+
+```sh
+python scripts/build.py
+```
+
+Writes `dist/word-helper-<version>.zip` with only the files the extension runs,
+derived from `manifest.json`. It fails if a referenced file is missing or if
+`DEBUG` is left on in `content.js`. Store listing text and images are in
+[`store/`](store/).
 
 ### Regenerating the icons
 
