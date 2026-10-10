@@ -1296,22 +1296,34 @@ chrome.runtime.onMessage.addListener((msg) => {
 // and no broad host permission.  The displacement map encodes a rounded-rect bezel:
 // flat (0.5 grey = no shift) across the face, bending toward the rim.
 const LG_W = 340, LG_H = 280, LG_R = 20;   // must match .wh-popup in CSS
-const LG_BEZEL = 28;                        // px of curved rim
-const LG_SCALE = 40;                        // feDisplacementMap scale; max shift is half this
+const LG_BEZEL = 40;                        // px of curved rim
+const LG_SCALE = 90;                        // feDisplacementMap scale; max shift is half this
 const LG_BLUR  = 2.5;                       // frost on the face: enough to keep card text legible
-const LG_CHROMA = 0.2;                      // R/B displace this much more/less than G
+const LG_CHROMA = 0.1;                      // R/B displace this much more/less than G.  The visible
+                                            // fringe is scale x chroma: 90 x 0.1 matches the old 40 x 0.2
 const LG_SAT   = 1.1;                       // saturation boost; higher turns the rim's colour split
                                             // into hard stripes along table rules
+const LG_POWER  = 1.5;                      // bezel falloff: higher keeps the bend in a thinner band at the rim
 
-function _lgSdf(px, py) {
-  // Signed distance to the rounded rect, negative inside.
-  const qx = Math.abs(px - LG_W / 2) - (LG_W / 2 - LG_R);
-  const qy = Math.abs(py - LG_H / 2) - (LG_H / 2 - LG_R);
+function _lgSdf(px, py, r = LG_R) {
+  // Signed distance to a rounded rect the size of the card, negative inside.
+  const qx = Math.abs(px - LG_W / 2) - (LG_W / 2 - r);
+  const qy = Math.abs(py - LG_H / 2) - (LG_H / 2 - r);
   const ox = Math.max(qx, 0), oy = Math.max(qy, 0);
-  return Math.hypot(ox, oy) + Math.min(Math.max(qx, qy), 0) - LG_R;
+  return Math.hypot(ox, oy) + Math.min(Math.max(qx, qy), 0) - r;
 }
 
-function _lgDisplacementMap(bezel = LG_BEZEL) {
+function _lgDisplacementMap({ bezel = LG_BEZEL, power = LG_POWER } = {}) {
+  // The bend is computed against a rounder outline than the card's own --
+  // corner radius at least the bezel width.  Against the card's 20px corners,
+  // any bezel wider than 20px reaches the diagonal where "nearest edge" flips
+  // from the bottom to the side; the bend direction jumped there, and on
+  // stronger settings showed as sharp, folded-paper triangles in each corner.
+  // A radius >= the bezel keeps the band clear of that diagonal, so the
+  // direction turns smoothly round the corner.  The corner tips lie outside
+  // the rounder outline and take the full bend, which is also where real
+  // glass, curving both ways, distorts most.
+  const fieldR = Math.max(LG_R, bezel);
   const c   = document.createElement('canvas');
   c.width   = LG_W; c.height = LG_H;
   const ctx = c.getContext('2d');
@@ -1320,22 +1332,25 @@ function _lgDisplacementMap(bezel = LG_BEZEL) {
   for (let y = 0; y < LG_H; y++) {
     for (let x = 0; x < LG_W; x++) {
       const px = x + 0.5, py = y + 0.5;
-      const s  = _lgSdf(px, py);
       let dx = 0, dy = 0;
-      if (s < 0 && s > -bezel) {
-        // Outward normal from the SDF gradient.
-        const gx = _lgSdf(px + 0.5, py) - _lgSdf(px - 0.5, py);
-        const gy = _lgSdf(px, py + 0.5) - _lgSdf(px, py - 0.5);
-        const gl = Math.hypot(gx, gy) || 1;
-        // 0 at the rim, 1 where the bezel meets the flat face.  A circular
-        // bezel's slope is steepest at the rim, so refraction is too.
-        const t   = -s / bezel;
-        const mag = Math.pow(1 - t, 2);
-        // Sample inward (toward the centre): a convex rim magnifies, and it
-        // never asks for backdrop pixels outside the card's own box, which the
-        // filter region would clip.
-        dx = -(gx / gl) * mag;
-        dy = -(gy / gl) * mag;
+      if (_lgSdf(px, py) < 0) {                 // inside the card itself
+        const s = _lgSdf(px, py, fieldR);
+        if (s > -bezel) {
+          // Outward direction from the field's gradient.
+          const gx = _lgSdf(px + 0.5, py, fieldR) - _lgSdf(px - 0.5, py, fieldR);
+          const gy = _lgSdf(px, py + 0.5, fieldR) - _lgSdf(px, py - 0.5, fieldR);
+          const gl = Math.hypot(gx, gy) || 1;
+          // 0 at the rim (and in the corner tips beyond it), 1 where the bezel
+          // meets the flat face.  A circular bezel's slope is steepest at the
+          // rim, so refraction is too.
+          const t   = Math.max(0, -s / bezel);
+          const mag = Math.pow(1 - t, power);
+          // Sample inward (toward the centre): a convex rim magnifies, and it
+          // never asks for backdrop pixels outside the card's own box, which
+          // the filter region would clip.
+          dx = -(gx / gl) * mag;
+          dy = -(gy / gl) * mag;
+        }
       }
       const i = (y * LG_W + x) * 4;
       d[i]     = Math.round(128 + 127 * dx);
@@ -1348,11 +1363,11 @@ function _lgDisplacementMap(bezel = LG_BEZEL) {
   return c.toDataURL('image/png');
 }
 
-function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR,
+function _lgEnsureFilter({ id = 'wh-lg-live', scale = LG_SCALE, blur = LG_BLUR, power = LG_POWER,
                           bezel = LG_BEZEL, chroma = LG_CHROMA, sat = LG_SAT,
                           doc = document } = {}) {
   if (doc.getElementById(id)) return;
-  const map = _lgDisplacementMap(bezel);
+  const map = _lgDisplacementMap({ bezel, power });
   const disp = (scale, res) =>
     `<feDisplacementMap in="frost" in2="map" scale="${scale}" ` +
     `xChannelSelector="R" yChannelSelector="G" result="${res}"/>`;
